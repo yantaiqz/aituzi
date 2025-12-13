@@ -38,9 +38,9 @@ st.markdown("""
     }
 
     /* === 2. 彻底去除顶部留白 === */
-    [data-testid="stHeader"] {
-        display: none !important;
-    }
+    #[data-testid="stHeader"] {
+    #    display: none !important;
+    #}
     #[data-testid="stToolbar"] {
     #    display: none !important;
     #}

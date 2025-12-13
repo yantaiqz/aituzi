@@ -41,9 +41,21 @@ st.markdown("""
     [data-testid="stHeader"] {
         display: none !important;
     }
+    #[data-testid="stToolbar"] {
+    #    display: none !important;
+    #}
+
+    /* 关键修改：删除 [data-testid="stToolbar"] 的 display: none 样式，或改为以下样式 */
     [data-testid="stToolbar"] {
-        display: none !important;
+        /* 保留工具栏，但调整位置/透明度，不破坏页面布局 */
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important; /* 确保在最上层 */
+        background-color: transparent !important;
+        border: none !important;
     }
+
     .main .block-container {
         padding-top: 0 !important;
         padding-bottom: 6rem !important;

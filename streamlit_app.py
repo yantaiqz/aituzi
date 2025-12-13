@@ -186,7 +186,7 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name='gemini-2.5-flash',
             system_instruction=ANALYSIS_SYSTEM_PROMPT,
             generation_config={"response_mime_type": "application/json"}
         )

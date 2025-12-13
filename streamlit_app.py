@@ -1,649 +1,383 @@
 import streamlit as st
 import google.generativeai as genai
-import requests
+from zhipuai import ZhipuAI
+import PyPDF2
+from docx import Document
+from PIL import Image
+import io
 import json
-import datetime
-import os
 import time
-import re
 
 # -------------------------------------------------------------
-# --- 0. 页面配置 ---
+# 1. 页面配置与 CSS 样式
 # -------------------------------------------------------------
-
 st.set_page_config(
-    page_title="德国财税专家QFS", 
-    page_icon="🇩🇪", 
+    page_title="AI 内容与剽窃检测系统",
+    page_icon="🕵️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# -------------------------------------------------------------
-# --- 1. CSS 注入 (Legalon Tech 风格 + 去除顶部留白) ---
-# -------------------------------------------------------------
-
+# 自定义 CSS 美化界面
 st.markdown("""
 <style>
-    /* === 1. 全局重置与字体 === */
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
-
-    * {
-        box-sizing: border-box;
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E88E5;
+        text-align: center;
+        margin-bottom: 20px;
+        font-weight: 700;
     }
-    
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-        background-color: #f4f7f9 !important; /* Legalon 风格浅灰背景 */
-        font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-        color: #333333 !important;
-    }
-
-    /* === 2. 彻底去除顶部留白 === */
-    #[data-testid="stHeader"] {
-    #    display: none !important;
-    #}
-    #[data-testid="stToolbar"] {
-    #    display: none !important;
-    #}
-
-    .main .block-container {
-        padding-top: 0 !important;
-        padding-bottom: 6rem !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        max-width: 100% !important;
-    }
-    
-    /* === 3. 顶部导航栏模拟 === */
-    .nav-bar {
-        background-color: #ffffff;
-        border-bottom: 1px solid #e0e0e0;
-        padding: 15px 40px;
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        display: flex;
-        align-items: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
-    }
-    .logo-text {
+    .sub-header {
         font-size: 1.2rem;
-        font-weight: 700;
-        color: #003567; /* Legalon 深蓝 */
-        letter-spacing: 0.5px;
-    }
-    .nav-tag {
-        background-color: #eef4fc;
-        color: #0056b3;
-        font-size: 0.75rem;
-        padding: 4px 8px;
-        border-radius: 4px;
-        margin-left: 12px;
-        font-weight: 500;
-    }
-
-    /* === 4. 主容器限制 === */
-    .main-content-wrapper {
-        max-width: 900px;
-        margin: 0 auto;
-        padding: 30px 20px;
-    }
-
-    /* === 5. 标题区域 === */
-    .hero-section {
-        margin-bottom: 30px;
-        text-align: left;
-    }
-    .page-title {
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-        color: #1a1a1a !important;
-        margin-bottom: 8px !important;
-    }
-    .subtitle {
-        font-size: 1rem !important;
-        color: #666666 !important;
-        font-weight: 400 !important;
-    }
-
-    /* === 6. 聊天气泡 (商务风格) === */
-    [data-testid="stChatMessage"] {
-        background-color: transparent !important;
-        padding: 10px 0 !important;
-    }
-    [data-testid="stChatMessage"] > div:first-child {
-        display: none !important; /* 隐藏默认头像，使用自定义 */
-    }
-    
-    /* 自定义气泡容器 */
-    .chat-row {
-        display: flex;
-        margin-bottom: 20px;
-        width: 100%;
-    }
-    .chat-row.user {
-        justify-content: flex-end;
-    }
-    .chat-row.assistant {
-        justify-content: flex-start;
-    }
-    
-    .chat-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 6px; /* 方形圆角 */
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        flex-shrink: 0;
-    }
-    .assistant .chat-avatar {
-        background-color: #003567;
-        color: white;
-        margin-right: 12px;
-    }
-    .user .chat-avatar {
-        background-color: #0f7bff;
-        color: white;
-        margin-left: 12px;
-        order: 2;
-    }
-
-    .chat-bubble {
-        padding: 16px 20px;
-        border-radius: 8px; /* 较小的圆角，更显专业 */
-        font-size: 0.95rem;
-        line-height: 1.6;
-        max-width: 85%;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-    .assistant .chat-bubble {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        color: #1a1a1a;
-    }
-    .user .chat-bubble {
-        background-color: #0056b3; /* 更稳重的蓝 */
-        color: white;
-        text-align: left;
-    }
-
-    /* === 7. 模型卡片 (Panel 风格) === */
-    .model-section-title {
-        font-size: 0.9rem;
-        font-weight: 700;
         color: #555;
-        margin: 30px 0 15px 0;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        border-left: 4px solid #003567;
-        padding-left: 10px;
+        text-align: center;
+        margin-bottom: 40px;
     }
-
-    .model-card {
-        background-color: #ffffff;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-        margin-bottom: 20px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-    }
-    
-    .model-card-header {
-        padding: 12px 20px;
-        font-size: 0.9rem;
-        font-weight: 600;
+    .result-card {
         background-color: #f8f9fa;
-        border-bottom: 1px solid #e0e0e0;
-        display: flex;
-        align-items: center;
-    }
-    
-    .gemini-header { color: #0056b3; } /* 统一蓝色系 */
-    .glm-header { color: #0056b3; }
-
-    .model-card-content {
+        border: 1px solid #ddd;
+        border-radius: 10px;
         padding: 20px;
-        font-size: 0.95rem;
-        line-height: 1.7;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .metric-label {
+        font-weight: bold;
         color: #333;
     }
-
-    /* === 8. 语义总结卡片 (高亮风格) === */
-    .semantic-card {
-        background-color: #f0f7ff; /* 极淡的蓝 */
-        border: 1px solid #cce5ff;
-        border-radius: 8px;
-        padding: 20px;
+    .stProgress > div > div > div > div {
+        background-image: linear-gradient(to right, #4caf50, #ffeb3b, #f44336);
     }
-    .semantic-content h4, .semantic-content strong {
-        color: #003567 !important; /* 标题使用深蓝 */
-        font-weight: 700 !important;
-        margin-top: 10px !important;
-        display: block;
+    .warning-text {
+        color: #e65100;
+        font-size: 0.9rem;
+        font-style: italic;
     }
-    .semantic-content ul {
-        margin-left: 20px !important;
-    }
-    .semantic-content li {
-        margin-bottom: 6px !important;
-    }
-
-    /* === 9. 底部输入框 === */
-    [data-testid="stChatInput"] {
-        background-color: white !important;
-        padding: 20px 0 !important;
-        border-top: 1px solid #e0e0e0 !important;
-        box-shadow: 0 -4px 10px rgba(0,0,0,0.03) !important;
-        z-index: 1000;
-    }
-    [data-testid="stChatInput"] > div {
-        max-width: 900px !important;
-        margin: 0 auto !important;
-    }
-
-    /* === 10. 按钮样式 (扁平化) === */
-    div.stButton > button {
-        border-radius: 6px !important;
-        border: 1px solid #dcdfe6 !important;
-        background-color: white !important;
-        color: #333 !important;
-        font-weight: 500 !important;
-        transition: all 0.2s !important;
-    }
-    div.stButton > button:hover {
-        border-color: #0056b3 !important;
-        color: #0056b3 !important;
-        background-color: #ecf5ff !important;
-    }
-    
-    /* 清除按钮特殊样式 */
-    [data-testid="stButton"] button[kind="secondary"] {
-        margin-top: 20px;
-        width: 100%;
-        border-style: dashed !important;
-    }
-
-    /* 光标动画 */
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-    .blinking-cursor { animation: blink 1s infinite; color: #0056b3; font-weight: bold; margin-left: 2px;}
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# --- 工具函数：Markdown 渲染 + 格式化 ---
+# 2. 核心分析逻辑与 Prompt
 # -------------------------------------------------------------
-def clean_extra_newlines(text):
-    """清理冗余换行/空格"""
-    cleaned = re.sub(r'\n{3,}', '\n\n', text) # 保留最多两个换行
-    cleaned = re.sub(r'　+', '', cleaned)
-    cleaned = cleaned.strip('\n')
-    return cleaned
 
-def markdown_to_html(text):
-    """
-    将 Markdown 转为 HTML，过滤 ### 标题，优化 Legalon 风格输出。
-    """
-    # 第一步：彻底删除所有 ### 开头的行 + 清理孤立的 ### 符号
-    lines = []
-    for line in text.split("\n"):
-        line = line.strip()
-        # 过滤 ### 标题行 + 清理行内孤立的 ###
-        if not line.startswith("###"):
-            clean_line = re.sub(r'###+', '', line)  # 删除所有###符号
-            lines.append(clean_line)
-    
-    html_lines = []
-    in_list = False
-    
-    for line in lines:
-        line = line.strip()
-        
-        # 处理加粗标题 (**标题**)
-        if line.startswith("**") and line.endswith("**"):
-            if in_list:
-                html_lines.append("</ul>")
-                in_list = False
-            content = line.strip("*")
-            html_lines.append(f"<div style='color: #003567; font-weight: 700; margin-top: 16px; margin-bottom: 8px; font-size: 1rem;'>{content}</div>")
-            
-        # 处理列表项 (- xxx)
-        elif line.startswith("- ") or line.startswith("* "):
-            if not in_list:
-                html_lines.append("<ul style='margin: 0 0 16px 20px; padding: 0;'>")
-                in_list = True
-            content = line[2:].strip()
-            content = re.sub(r'\*\*(.*?)\*\*', r'<span style="color:#0056b3; font-weight:600;">\1</span>', content)
-            html_lines.append(f"<li style='margin-bottom: 6px;'>{content}</li>")
-            
-        # 处理普通段落
-        elif line:
-            if in_list:
-                html_lines.append("</ul>")
-                in_list = False
-            line = re.sub(r'\*\*(.*?)\*\*', r'<span style="color:#0056b3; font-weight:600;">\1</span>', line)
-            html_lines.append(f"<p style='margin-bottom: 10px;'>{line}</p>")
-            
-    if in_list:
-        html_lines.append("</ul>")
-        
-    return "\n".join(html_lines)
+ANALYSIS_SYSTEM_PROMPT = """
+你是一位专业的法医语言学家和学术诚信专家。你的任务是分析用户提供的文本（或图片中的文字），完成以下两个核心任务：
 
-# -------------------------------------------------------------
-# --- 1. 常量定义 ---
-# -------------------------------------------------------------
-USER_ICON = "👤"
-ASSISTANT_ICON = "⚖️"
-GEMINI_ICON = "♊️"
-GLM_ICON = "🧠"
+1. **AI 生成检测**：判断文本是否由 AI 生成。分析行文逻辑、词汇重复度、情感连贯性、幻觉特征等。
+   - 分类标准：
+     - "AI特征" (80%-100%): 极高概率由 AI 生成。
+     - "疑似AI" (40%-79%): 混合特征，无法确定，但有明显 AI 痕迹。
+     - "人工特征" (0%-39%): 具有典型的人类写作特征（如个人经历、非标准语法、情感细微差别）。
 
-COMMON_LEGAL_QUESTIONS = [
-    "怎么应对德国税务稽查？",
-    "货物出口德国如何判断增值税地点？",
-    "企业在德国做重组，怎么做税务优化？"
-]
+2. **剽窃/抄袭检测**：判断文本是否存在抄袭嫌疑。
+   - 基于你的训练数据，分析文本是否与知名文章、论文、网络内容高度雷同。
+   - 如果发现抄袭，请指出可能的来源。
 
-SYSTEM_INSTRUCTION = """
-角色：德国资深税务师（Legalon Tech 认证专家）
-服务对象：中国出海企业
-核心要求：
-1. 基于德国现行法律法规，提供专业、严谨、可落地的合规建议；
-2. 结构化输出：核心风险点 → 法律依据 (引用法条) → 合规建议；
-3. 语气专业、冷静、客观，避免过度营销口吻。
+请务必以严格的 **JSON 格式**返回结果，不要包含 Markdown 代码块标记（```json ... ```），直接返回 JSON 字符串。格式如下：
+
+{
+    "ai_detection": {
+        "label": "AI特征" | "疑似AI" | "人工特征",
+        "score": 0-100,
+        "reason": "详细的分析理由，列出具体的特征点（如：过度使用连接词、缺乏具体细节、逻辑过于完美等）。"
+    },
+    "plagiarism_detection": {
+        "percentage": 0-100,
+        "reason": "详细的分析理由。",
+        "sources": "列出可能的原文来源，如果没有发现明显来源，请填'未在训练数据中发现明显匹配源'。"
+    }
+}
 """
 
 # -------------------------------------------------------------
-# --- 2. 核心逻辑函数 ---
+# 3. 工具函数：文档解析
 # -------------------------------------------------------------
 
-def stream_gemini_response(prompt, model, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            stream = model.generate_content(prompt, stream=True)
-            for chunk in stream:
-                if chunk.text:
-                    yield chunk.text
-                    time.sleep(0.02)
-            return # 成功后退出函数
-        except Exception as e:
-            error_str = str(e)
-            if "429" in error_str or "quota" in error_str.lower():
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 2秒, 4秒, 8秒
-                    print(f"遇到 429 错误，等待 {wait_time} 秒后重试...")
-                    time.sleep(wait_time)
-                else:
-                    # 达到最大重试次数，最终失败
-                    yield f"⚠️ Gemini调用失败 (429 Quota Exceeded)：多次重试后仍失败。{error_str[:100]}..."
-                    break # 退出循环
-            else:
-                # 其他非 429 错误，直接报告
-                yield f"⚠️ Gemini调用失败：{error_str[:100]}..."
-                break
-
-def stream_glm_response(prompt, api_key, model_name="glm-4"):
-    if not api_key:
-        yield "⚠️ 未配置智谱GLM API Key。"
-        return
+def extract_text_from_pdf(file):
     try:
-        url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        full_prompt = f"{SYSTEM_INSTRUCTION}\n用户问题：{prompt}"
-        data = {
-            "model": model_name,
-            "messages": [{"role": "user", "content": full_prompt}],
-            "temperature": 0.1,
-            "stream": True
-        }
-        response = requests.post(url, headers=headers, json=data, stream=True, timeout=30)
-        for line in response.iter_lines():
-            if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    line = line[6:]
-                    if line == '[DONE]': break
-                    try:
-                        chunk = json.loads(line)
-                        if content := chunk['choices'][0]['delta'].get('content'):
-                            yield content
-                    except: continue
+        pdf_reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        return text
     except Exception as e:
-        yield f"⚠️ GLM调用失败：{str(e)[:100]}..."
+        st.error(f"PDF 解析失败: {e}")
+        return None
+
+def extract_text_from_docx(file):
+    try:
+        doc = Document(file)
+        text = ""
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Word 解析失败: {e}")
+        return None
+
+# -------------------------------------------------------------
+# 4. 模型调用函数
+# -------------------------------------------------------------
+
+def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
+    """
+    使用智谱 AI 进行分析。
+    如果是文本，使用 glm-4-flash (速度快)。
+    如果是图片，使用 glm-4v-plus (视觉能力)。
+    """
+    if not api_key:
+        return {"error": "请提供智谱 API Key"}
+    
+    client = ZhipuAI(api_key=api_key)
+    
+    try:
+        if is_image and image_data:
+            # 图片模式 (GLM-4V)
+            # 注意：智谱的 SDK 图片传输通常需要 base64 或 url，这里简化处理
+            # 实际生产中建议先进行 OCR 转文字再分析，或者使用 base64 传给 glm-4v
+            import base64
+            img_byte_arr = io.BytesIO()
+            image_data.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
+            base64_image = base64.b64encode(img_byte_arr).decode('utf-8')
+            
+            response = client.chat.completions.create(
+                model="glm-4v", 
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": ANALYSIS_SYSTEM_PROMPT + "\n\n请分析这张图片中的文字内容："
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+        else:
+            # 文本模式 (GLM-4)
+            response = client.chat.completions.create(
+                model="glm-4",
+                messages=[
+                    {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                    {"role": "user", "content": content}
+                ],
+                temperature=0.1
+            )
+            
+        return json.loads(response.choices[0].message.content.replace('```json', '').replace('```', ''))
+    
+    except json.JSONDecodeError:
+        return {"error": "模型返回格式解析失败，请重试。"}
+    except Exception as e:
+        return {"error": f"智谱 API 调用失败: {str(e)}"}
+
+def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
+    """
+    使用 Google Gemini 进行分析。
+    统一使用 gemini-1.5-flash，它原生支持多模态。
+    """
+    if not api_key:
+        return {"error": "请提供 Gemini API Key"}
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=ANALYSIS_SYSTEM_PROMPT,
+            generation_config={"response_mime_type": "application/json"}
+        )
         
-def generate_semantic_compare(gemini_resp, glm_resp, user_question, gemini_api_key, max_retries=3):
-    """
-    生成格式严格的语义对比分析，并带有 429 错误重试机制。
-    """
-    # 关键修复：移除 Prompt 中的 ### 标题，改用普通文本
-    compare_prompt = f"""
-    作为德国财税分析专家，请对比以下两个模型针对"{user_question}"的回答，并严格按照指定格式输出语义异同分析。
-
-    待分析内容：
-    [Gemini]: {gemini_resp[:1500]}
-    [GLM]: {glm_resp[:1500]}
-
-    必须严格遵守的输出格式（不要包含Markdown代码块符号，不要使用###标题）：
-
-    **核心共识**
-    - [共识点1]
-    - [共识点2]
-
-    **观点差异**
-    - Gemini侧重：[描述]
-    - GLM侧重：[描述]
-
-    **综合建议**
-    [100字左右的综合实操建议]
-    """
-      
-    # === 新增重试循环 ===
-    for attempt in range(max_retries):
-        try:
-            genai.configure(api_key=gemini_api_key)
-            summary_model = genai.GenerativeModel('gemini-2.5-flash')
-            stream = summary_model.generate_content(compare_prompt, stream=True)
+        if is_image and image_data:
+            response = model.generate_content([
+                "请分析这张图片中的文字内容，并按照系统提示的 JSON 格式输出。", 
+                image_data
+            ])
+        else:
+            response = model.generate_content(content)
             
-            # 如果成功获取到流，则开始流式输出并跳出重试循环
-            for chunk in stream:
-                if chunk.text:
-                    yield chunk.text
-                    time.sleep(0.03)
-            
-            # 正常完成，退出整个函数
-            return
-            
-        except Exception as e:
-            error_str = str(e)
-            
-            # --- 检查是否为 429 配额错误 ---
-            if "429" in error_str or "quota" in error_str.lower():
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 2秒, 4秒, 8秒
-                    # 这里使用 yield 来提示用户正在重试
-                    yield f"**警告：** 遇到配额限制 (429)。等待 {wait_time} 秒后尝试第 {attempt + 2} 次重试..."
-                    time.sleep(wait_time)
-                    continue # 继续下一次循环 (重试)
-                else:
-                    # 达到最大重试次数，执行最终失败的错误处理
-                    error_message = f"**错误！语义总结失败：**\n\n- **原因:** Quota Exceeded (429)，多次重试后仍失败。 \n- **详情:** {error_str[:150]}...\n- **请检查:** API Key、付费状态或等待几分钟后重试。"
-                    yield f"**核心共识**\n- 均强调合规重要性\n\n**观点差异**\n- 分析服务暂时不可用 (请查看日志)\n\n**综合建议**\n{error_message}"
-                    return # 最终失败，退出函数
-            
-            # --- 其他非 429 错误 ---
-            else:
-                # 捕获其他非 429 错误，并输出详细信息
-                error_message = f"**错误！语义总结失败：**\n\n- **原因:** {type(e).__name__} \n- **详情:** {error_str[:150]}...\n- **请检查:** 模型名称或 API Key 权限。"
-                yield f"**核心共识**\n- 均强调合规重要性\n\n**观点差异**\n- 分析服务暂时不可用 (请查看日志)\n\n**综合建议**\n{error_message}"
-                return # 其他错误，直接退出
-
+        return json.loads(response.text)
+        
+    except Exception as e:
+        return {"error": f"Gemini API 调用失败: {str(e)}"}
 
 # -------------------------------------------------------------
-# --- 3. 初始化与状态 ---
+# 5. UI 布局与主逻辑
 # -------------------------------------------------------------
-gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
-glm_api_key = st.secrets.get("GLM_API_KEY", "")
-st.session_state["api_configured"] = bool(gemini_api_key)
 
-@st.cache_resource
-def initialize_gemini_model():
-    if not gemini_api_key: return None
-    return genai.GenerativeModel(
-        model_name='gemini-2.5-flash', 
-        system_instruction=SYSTEM_INSTRUCTION
+# --- 侧边栏：设置 ---
+with st.sidebar:
+    st.header("⚙️ 配置面板")
+    
+    model_provider = st.radio(
+        "选择分析模型",
+        ("智谱 AI (默认)", "Google Gemini (进阶)"),
+        captions=["国内访问稳定，GLM-4模型", "多模态能力强，Gemini-1.5模型"]
     )
-
-gemini_model = initialize_gemini_model()
-
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "您好，我是 QFS 德国财税合规助手。请告诉我您遇到的具体问题。"}
-    ]
-
-# -------------------------------------------------------------
-# --- 4. 页面渲染 ---
-# -------------------------------------------------------------
-
-# --- 自定义顶部导航栏 ---
-st.markdown("""
-<div class="nav-bar">
-    <div class="logo-text">🇩🇪 QFS | Germany Compliance</div>
-    <div class="nav-tag">AI Legal Assistant</div>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-content-wrapper">', unsafe_allow_html=True)
-
-# --- Hero 区域 ---
-st.markdown("""
-<div class="hero-section">
-    <h1 class="page-title">德国财税合规咨询</h1>
-    <div class="subtitle">基于双模型 (Gemini & GLM) 的交叉验证分析系统</div>
-</div>
-""", unsafe_allow_html=True)
-
-# --- 常见问题按钮组 ---
-st.markdown('<div style="font-weight:600; margin-bottom:10px; color:#555;">💡 常见合规场景</div>', unsafe_allow_html=True)
-cols = st.columns(3) # 改为3列更美观
-prompt_from_button = None
-for i, question in enumerate(COMMON_LEGAL_QUESTIONS):
-    with cols[i % 3]:
-        if st.button(question, key=f"q_{i}", use_container_width=True):
-            prompt_from_button = question
-
-# --- 历史消息渲染 (自定义 HTML 气泡) ---
-st.markdown('<div style="margin-top: 30px;"></div>', unsafe_allow_html=True)
-for msg in st.session_state.messages:
-    role_class = "user" if msg["role"] == "user" else "assistant"
-    avatar = USER_ICON if msg["role"] == "user" else ASSISTANT_ICON
     
-    # 简单的 Markdown 转 HTML 用于历史记录
-    content_html = markdown_to_html(msg["content"])
+    st.markdown("---")
     
-    st.markdown(f"""
-    <div class="chat-row {role_class}">
-        <div class="chat-avatar">{avatar}</div>
-        <div class="chat-bubble">{content_html}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# --- 输入处理 ---
-chat_input_text = st.chat_input("请输入具体业务场景或法规问题...")
-user_input = prompt_from_button if prompt_from_button else chat_input_text
-
-if user_input and st.session_state.get("api_configured", False):
-    # 1. 显示用户提问
-    st.markdown(f"""
-    <div class="chat-row user">
-        <div class="chat-avatar">{USER_ICON}</div>
-        <div class="chat-bubble">{user_input}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    # 2. 占位容器 (改为自上而下)
-    st.markdown('<div class="model-section-title">🔍 AI 模型交叉分析</div>', unsafe_allow_html=True)
+    api_key = st.text_input(
+        "输入 API Key", 
+        type="password",
+        help="如果是智谱选智谱Key，Gemini选Gemini Key"
+    )
     
-    # === 移除 st.columns(2) ===
-    gemini_placeholder = st.empty() 
-    glm_placeholder = st.empty() 
-    semantic_placeholder = st.empty()
-
-    # 3. 串行流式生成 
+    st.info("""
+    **提示：**
+    - 智谱 Key 获取：open.bigmodel.cn
+    - Gemini Key 获取：aistudio.google.com
+    """)
     
-    # --- Gemini 生成 (不再使用 with c1) ---
-    gemini_full = ""
-    # st.spinner() 是一个 Streamlit 内置的进度条，可以增强用户体验
-    with st.spinner(f"正在获取 {GEMINI_ICON} Gemini Flash 的专业分析..."):
-        for chunk in stream_gemini_response(user_input, gemini_model):
-            gemini_full += chunk
-            # 实时更新占位符，注意这里不再需要 c1/c2
-            gemini_html = markdown_to_html(clean_extra_newlines(gemini_full))
-            gemini_placeholder.markdown(f"""
-            <div class="model-card">
-                <div class="model-card-header gemini-header">{GEMINI_ICON} Gemini Flash</div>
-                <div class="model-card-content">{gemini_html}<span class="blinking-cursor">|</span></div>
+    st.markdown("---")
+    st.markdown("🔒 本地处理，API Key 仅用于本次会话。")
+
+# --- 主页面 ---
+st.markdown('<div class="main-header">🕵️ AI 内容与剽窃检测系统</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
+
+# 输入方式选项卡
+tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传 (PDF/Word)", "🖼️ 图片分析"])
+
+content_to_analyze = ""
+image_to_analyze = None
+is_image_mode = False
+process_trigger = False
+
+with tab1:
+    text_input = st.text_area("在此粘贴或输入需要检测的文字：", height=200)
+    if st.button("开始分析文本", key="btn_text"):
+        if text_input.strip():
+            content_to_analyze = text_input
+            process_trigger = True
+        else:
+            st.warning("请输入文字。")
+
+with tab2:
+    uploaded_file = st.file_uploader("上传文档", type=['pdf', 'docx'])
+    if st.button("开始分析文档", key="btn_doc"):
+        if uploaded_file:
+            with st.spinner("正在解析文档..."):
+                if uploaded_file.name.endswith('.pdf'):
+                    content_to_analyze = extract_text_from_pdf(uploaded_file)
+                elif uploaded_file.name.endswith('.docx'):
+                    content_to_analyze = extract_text_from_docx(uploaded_file)
+                
+                if content_to_analyze and len(content_to_analyze) > 10:
+                    process_trigger = True
+                    st.success(f"文档解析成功！共 {len(content_to_analyze)} 字。")
+                else:
+                    st.error("文档解析失败或内容为空。")
+        else:
+            st.warning("请先上传文件。")
+
+with tab3:
+    uploaded_image = st.file_uploader("上传包含文字的图片", type=['png', 'jpg', 'jpeg'])
+    if uploaded_image:
+        image_to_analyze = Image.open(uploaded_image)
+        st.image(image_to_analyze, caption="预览图片", use_container_width=True)
+        if st.button("开始分析图片", key="btn_img"):
+            is_image_mode = True
+            process_trigger = True
+
+# --- 执行分析 ---
+if process_trigger:
+    if not api_key:
+        st.error("❌ 错误：未配置 API Key。请在左侧侧边栏输入。")
+    else:
+        result_container = st.container()
+        
+        with st.spinner(f"正在调用 {'Gemini' if 'Gemini' in model_provider else '智谱AI'} 进行深度分析..."):
+            start_time = time.time()
+            
+            # 选择模型调用
+            if "Gemini" in model_provider:
+                result = analyze_with_gemini(api_key, content_to_analyze, is_image_mode, image_to_analyze)
+            else:
+                result = analyze_with_zhipu(api_key, content_to_analyze, is_image_mode, image_to_analyze)
+            
+            end_time = time.time()
+
+        # --- 结果展示 ---
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            st.toast(f"分析完成！耗时 {end_time - start_time:.2f} 秒")
+            
+            # 解析结果
+            ai_data = result.get("ai_detection", {})
+            copy_data = result.get("plagiarism_detection", {})
+            
+            # 1. AI 检测结果展示
+            st.markdown("### 🤖 维度一：AI 生成检测")
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                score = ai_data.get("score", 0)
+                label = ai_data.get("label", "未知")
+                
+                # 动态颜色
+                color = "green"
+                if score > 40: color = "orange"
+                if score > 80: color = "red"
+                
+                st.markdown(f"""
+                <div style="text-align: center; padding: 20px; border: 2px solid {color}; border-radius: 10px;">
+                    <h2 style="color: {color}; margin: 0;">{label}</h2>
+                    <h1 style="font-size: 3rem; margin: 0;">{score}%</h1>
+                    <p style="color: #666;">AI 疑似度</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col2:
+                st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                st.markdown(f"**判定理由：**\n\n{ai_data.get('reason', '无详细理由')}")
+                st.progress(score / 100)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # 2. 剽窃检测结果展示
+            st.markdown("### 📝 维度二：剽窃/抄袭检测")
+            col3, col4 = st.columns([1, 2])
+            
+            with col3:
+                copy_score = copy_data.get("percentage", 0)
+                
+                # 动态颜色
+                copy_color = "green"
+                if copy_score > 20: copy_color = "orange"
+                if copy_score > 50: copy_color = "red"
+                
+                st.markdown(f"""
+                <div style="text-align: center; padding: 20px; border: 2px solid {copy_color}; border-radius: 10px;">
+                    <h2 style="color: {copy_color}; margin: 0;">剽窃风险</h2>
+                    <h1 style="font-size: 3rem; margin: 0;">{copy_score}%</h1>
+                    <p style="color: #666;">重复率预估</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col4:
+                st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                st.markdown(f"**分析详情：**\n\n{copy_data.get('reason', '无详细理由')}")
+                st.markdown(f"**📚 可能来源：**\n\n{copy_data.get('sources', '未知')}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # 3. 原始数据（调试用）
+            with st.expander("🔍 查看原始 JSON 数据"):
+                st.json(result)
+
+            st.markdown("""
+            <div class="warning-text">
+            ⚠️ 免责声明：本工具检测结果基于大模型概率预测，仅供参考，不作为最终的学术或法律依据。
+            AI 模型可能会产生幻觉（Hallucination），对于剽窃来源的引用请务必进行人工核实。
             </div>
             """, unsafe_allow_html=True)
-    
-    # 完成态去除光标
-    gemini_placeholder.markdown(f"""
-    <div class="model-card">
-        <div class="model-card-header gemini-header">{GEMINI_ICON} Gemini Flash</div>
-        <div class="model-card-content">{markdown_to_html(clean_extra_newlines(gemini_full))}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # --- GLM 生成 (不再使用 with c2) ---
-    glm_full = ""
-    with st.spinner(f"正在获取 {GLM_ICON} 智谱GLM-4 的专业分析..."):
-        for chunk in stream_glm_response(user_input, glm_api_key):
-            glm_full += chunk
-            glm_html = markdown_to_html(clean_extra_newlines(glm_full))
-            glm_placeholder.markdown(f"""
-            <div class="model-card">
-                <div class="model-card-header glm-header">{GLM_ICON} 智谱GLM-4</div>
-                <div class="model-card-content">{glm_html}<span class="blinking-cursor">|</span></div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    glm_placeholder.markdown(f"""
-    <div class="model-card">
-        <div class="model-card-header glm-header">{GLM_ICON} 智谱GLM-4</div>
-        <div class="model-card-content">{markdown_to_html(clean_extra_newlines(glm_full))}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 增加短暂延迟，避免立即触发 Gemini 总结模型的 429 限制
-    time.sleep(1.5)
-
-    # --- 语义对比分析 (保持不变，因为它本身就是垂直排列) ---
-    st.markdown('<div class="model-section-title">📊 专家综合意见 (基于双模型)</div>', unsafe_allow_html=True)
-    semantic_full = ""
-    for chunk in generate_semantic_compare(gemini_full, glm_full, user_input, gemini_api_key):
-        semantic_full += chunk
-        semantic_html = markdown_to_html(clean_extra_newlines(semantic_full))
-        semantic_placeholder.markdown(f"""
-        <div class="semantic-card">
-            <div class="semantic-content">{semantic_html}<span class="blinking-cursor">|</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    semantic_placeholder.markdown(f"""
-    <div class="semantic-card">
-        <div class="semantic-content">{markdown_to_html(clean_extra_newlines(semantic_full))}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 保存历史 (仅保存总结，避免Token过长)
-    st.session_state.messages.append({"role": "assistant", "content": semantic_full})
-
-# --- 底部清空 ---
-if st.button('重置对话', key="reset_btn", help="清空所有历史"):
-    st.session_state.messages = [{"role": "assistant", "content": "您好，我是 QFS 德国财税合规助手。请告诉我您遇到的具体问题。"}]
-    st.rerun()
-
-st.markdown('</div>', unsafe_allow_html=True)

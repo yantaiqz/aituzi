@@ -521,19 +521,10 @@ st.markdown("""
 st.markdown(f"""
 <div class="metric-container">
     <div class="metric-box">
-        <div class="metric-label">今日 UV</div>
-        <div class="metric-value">{today_uv}</div>
-        <div class="metric-sub">访客数</div>
+        <div class="metric-sub">今日 UV{today_uv}访客数</div>
     </div>
     <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
-        <div class="metric-label">历史总 UV</div>
-        <div class="metric-value">{total_uv}</div>
-        <div class="metric-sub">总独立访客</div>
-    </div>
-    <div class="metric-box">
-        <div class="metric-label">今日 PV</div>
-        <div class="metric-value">{today_pv}</div>
-        <div class="metric-sub">访问次数</div>
+        <div class="metric-sub">历史总 UV{total_uv}总独立访客</div>
     </div>
 </div>
 """, unsafe_allow_html=True)

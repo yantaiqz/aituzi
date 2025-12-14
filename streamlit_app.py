@@ -12,8 +12,8 @@ import time
 # 1. 页面配置与 CSS 样式（移除侧边栏相关样式，优化主页面布局）
 # -------------------------------------------------------------
 st.set_page_config(
-    page_title="🐰 AI兔子 内容与剽窃检测系统",
-    page_icon="",
+    page_title="AI兔子 内容与剽窃检测系统",
+    page_icon="🐰",
     layout="wide",
     initial_sidebar_state="collapsed"  # 强制折叠侧边栏
 )
@@ -213,7 +213,7 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
 # 5. UI 布局与主逻辑（核心修改：移除侧边栏，模型选择移到主页面）
 # -------------------------------------------------------------
 # 页面标题
-st.markdown('<div class="main-header">🕵️ AI 内容与剽窃检测系统</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">🐰 AI兔子 内容与剽窃检测系统</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
 # 模型配置卡片（替代原侧边栏，放在主页面顶部）

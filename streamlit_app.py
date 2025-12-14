@@ -379,10 +379,10 @@ if process_trigger:
         </div>
         """, unsafe_allow_html=True)
 
-
 import streamlit as st
 import datetime
 import sqlite3
+import uuid  # <--- 新增导入
 
 # -------------------------- 配置 --------------------------
 DB_FILE = "visit_stats.db"
@@ -392,15 +392,12 @@ def init_db():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
-    # 表1：每日流量表 (用于统计PV - 页面访问量)
+    # 表1：每日流量表 (用于统计PV)
     c.execute('''CREATE TABLE IF NOT EXISTS daily_traffic 
                  (date TEXT PRIMARY KEY, 
                   pv_count INTEGER DEFAULT 0)''')
                   
-    # 表2：访客表 (用于统计UV - 独立访客)
-    # visitor_id: 唯一ID
-    # first_visit: 第一次访问时间 (用于留存分析，虽暂未显示但建议保留)
-    # last_visit: 最后一次访问日期 (关键：用于计算今日UV)
+    # 表2：访客表 (用于统计UV)
     c.execute('''CREATE TABLE IF NOT EXISTS visitors 
                  (visitor_id TEXT PRIMARY KEY, 
                   first_visit_date TEXT,
@@ -409,67 +406,54 @@ def init_db():
     conn.close()
 
 def get_visitor_id():
-    """获取或生成访客ID"""
+    """获取或生成访客ID（修复版：使用UUID替代不稳定的内部API）"""
     if "visitor_id" not in st.session_state:
-        # 使用 Session ID + 哈希 确保同一浏览器会话ID不变
-        # 注意：如果用户刷新浏览器(F5)，Streamlit通常会视为新会话。
-        # 若需更持久的指纹，需要结合Cookie (Streamlit原生不支持，需组件)
-        session_id = str(hash(st.runtime.get_instance()._session_id))
-        st.session_state["visitor_id"] = session_id
+        # 生成一个唯一的随机ID，并保存在当前会话状态中
+        st.session_state["visitor_id"] = str(uuid.uuid4())
     return st.session_state["visitor_id"]
 
 def track_and_get_stats():
-    """
-    核心逻辑：
-    1. 如果是新会话，执行写操作（计数+1）。
-    2. 无论是否新会话，都执行读操作（获取最新数据）。
-    """
+    """核心统计逻辑"""
     init_db()
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
     today_str = datetime.datetime.utcnow().date().isoformat()
-    visitor_id = get_visitor_id()
+    visitor_id = get_visitor_id() # 这里调用修改后的函数
 
     # --- 写操作 (仅当本Session未计数时执行) ---
     if "has_counted" not in st.session_state:
         try:
-            # 1. 更新每日PV (使用原子更新防止并发覆盖)
-            # 尝试插入今日行，如果存在则忽略
+            # 1. 更新每日PV
             c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
-            # 更新计数
             c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
             
             # 2. 更新访客UV信息
-            # 检查访客是否存在
             c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
             exists = c.fetchone()
             
             if exists:
-                # 老访客：更新最后访问时间为今天
                 c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
             else:
-                # 新访客：插入记录
                 c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
                           (visitor_id, today_str, today_str))
             
             conn.commit()
-            # 标记已计数，防止同一会话重复刷新导致PV暴涨（根据需求可保留或移除此行）
             st.session_state["has_counted"] = True
             
         except Exception as e:
             st.error(f"数据库写入错误: {e}")
 
-    # --- 读操作 (每次刷新都读取最新数据) ---
-    # 1. 获取今日UV (条件：last_visit_date 是今天)
+    # --- 读操作 ---
+    # 1. 获取今日UV
     c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
     today_uv = c.fetchone()[0]
     
-    # 2. 获取历史总UV (条件：visitors表总行数)
+    # 2. 获取历史总UV
     c.execute("SELECT COUNT(*) FROM visitors")
     total_uv = c.fetchone()[0]
 
-    # 3. 获取今日PV (可选，如果需要显示页面刷新次数)
+    # 3. 获取今日PV
     c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
     res_pv = c.fetchone()
     today_pv = res_pv[0] if res_pv else 0
@@ -478,12 +462,16 @@ def track_and_get_stats():
     
     return today_uv, total_uv, today_pv
 
-# -------------------------- 页面展示部分 --------------------------
+# -------------------------- 页面展示 --------------------------
 
 # 执行统计
-today_uv, total_uv, today_pv = track_and_get_stats()
+try:
+    today_uv, total_uv, today_pv = track_and_get_stats()
+except Exception as e:
+    st.error(f"统计模块出错: {e}")
+    today_uv, total_uv, today_pv = 0, 0, 0
 
-# CSS 样式美化
+# CSS 样式
 st.markdown("""
 <style>
     .metric-container {

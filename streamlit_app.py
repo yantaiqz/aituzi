@@ -10,7 +10,6 @@ import time
 import sqlite3
 import uuid
 import datetime
-import hashlib
 
 # -------------------------------------------------------------
 # 1. 页面配置与 CSS 样式（新增快捷按钮样式）
@@ -19,7 +18,7 @@ st.set_page_config(
     page_title="AI兔子 内容与剽窃检测系统",
     page_icon="🐰",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed"  # 强制折叠侧边栏
 )
 
 # 自定义 CSS 美化界面（新增快捷按钮样式）
@@ -70,25 +69,6 @@ st.markdown("""
         gap: 20px;
         justify-content: center;
     }
-    /* 新增：内嵌上传按钮样式 */
-    .upload-container {
-        margin: 10px 0;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
-    .upload-btn {
-        flex: 1;
-        min-width: 120px;
-    }
-    .file-info {
-        font-size: 0.85rem;
-        color: #2196F3;
-        margin-top: 5px;
-    }
-    .text-area-container {
-        position: relative;
-    }
     /* 新增：快捷按钮样式 */
     .shortcut-btn-container {
         display: flex;
@@ -110,11 +90,65 @@ st.markdown("""
         background-color: #1E88E5;
         color: white;
     }
+    /* 统计模块样式 */
+    .metric-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+    .metric-box {
+        text-align: center;
+    }
+    .metric-label {
+        color: #6c757d;
+        font-size: 0.85rem;
+        margin-bottom: 2px;
+    }
+    .metric-value {
+        color: #212529;
+        font-size: 1.2rem;
+        font-weight: bold;
+    }
+    .metric-sub {
+        font-size: 0.7rem;
+        color: #adb5bd;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. 核心分析逻辑与 Prompt
+# 2. 示例文本配置（4个差异化示例）
+# -------------------------------------------------------------
+SAMPLE_TEXTS = {
+    "示例1：AI生成-科技类": """
+人工智能技术的迭代速度正呈现指数级增长态势，其在各行业的渗透深度与广度持续拓展。从底层算法优化到上层应用落地，大语言模型、计算机视觉、强化学习等核心技术路线不断突破，形成了多维度的技术生态体系。
+
+在产业应用层面，AI已实现从辅助工具向核心生产力的转变。制造业中，智能质检系统的误检率可控制在0.1%以下，生产效率提升30%以上；服务业中，智能客服的意图识别准确率超过95%，大幅降低人力成本。未来，随着边缘计算与AI的融合，端侧智能将成为新的发展方向，进一步释放技术价值。
+    """,
+    "示例2：AI生成-教育类": """
+个性化学习是教育数字化转型的核心方向，人工智能技术为其提供了底层支撑。通过构建学习者画像，系统可精准识别知识薄弱点，生成定制化学习路径，实现"千人千面"的教学模式。
+
+认知科学研究表明，个性化学习能有效提升学习效率2-3倍，降低学习焦虑指数。在政策层面，各国均将AI教育应用纳入战略规划，强调技术与教育教学的深度融合。需注意的是，AI教育应用应坚守育人本质，避免技术至上倾向，保障教育公平与人文关怀。
+    """,
+    "示例3：人工编写-生活随笔": """
+今天周末起得晚，快十点才醒，窗外的阳光透过窗帘缝照进来，落在床头柜的多肉上，粉粉的叶片亮晶晶的，心情一下子就好了。慢悠悠起来煮了碗螺蛳粉，加了个炸蛋，辣得直吸溜，但是越吃越香，把一周的疲惫都吃没了。
+
+下午收拾了阳台，把攒了好久的空瓶子和纸箱卖了，才卖了8块钱，但是看着阳台干干净净的，特别有成就感。晚上和妈妈视频，她说老家的柿子熟了，等下个月回来给我留着，还说爸爸钓了好多小鱼，晒成鱼干等我吃。想家了，但是想想还有两周就能回家，又觉得日子有盼头了。
+    """,
+    "示例4：人工编写-旅行日记": """
+在大理待的第三天，今天终于早起去了洱海西岸的才村，租了辆小电驴沿着湖边走，风里都是青草和水的味道，舒服得不想走。路过一家本地人的早餐店，要了碗稀豆粉配油条，咸香咸香的，和北方的早餐完全不一样。
+
+中午在双廊的一家小店吃了黄焖鸡，老板是四川人，聊了两句说在大理待了八年，早就把这里当家了。下午坐在湖边的椅子上发呆，看着云慢慢飘，船慢悠悠地走，突然觉得原来慢下来的日子这么美好。手机快没电了，也不想充，就想安安静静待着，感受这一刻的美好。
+    """
+}
+
+# -------------------------------------------------------------
+# 3. 核心分析逻辑与 Prompt
 # -------------------------------------------------------------
 ANALYSIS_SYSTEM_PROMPT = """
 你是一位专业的法医语言学家和学术诚信专家。你的任务是分析用户提供的文本（或图片中的文字），完成以下两个核心任务：
@@ -146,32 +180,6 @@ ANALYSIS_SYSTEM_PROMPT = """
 """
 
 # -------------------------------------------------------------
-# 3. 示例文本配置（可自定义修改）
-# -------------------------------------------------------------
-SAMPLE_TEXTS = {
-    "示例一（AI生成文本）": """
-人工智能技术的快速发展正深刻改变着人类社会的生产与生活方式。从工业自动化到智能家居，从医疗诊断到金融风控，AI 技术的应用场景日益广泛。其核心优势在于能够高效处理海量数据，发现人类难以察觉的规律与趋势。
-
-在教育领域，AI 可以实现个性化教学，根据学生的学习进度和能力水平定制学习方案。在交通领域，自动驾驶技术有望大幅降低交通事故发生率，提升出行效率。然而，AI 技术的发展也带来了诸如数据隐私、就业结构调整等问题，需要通过完善的法律法规和伦理框架加以规范。
-    """,
-    "示例二（AI生成文本）": """
-随着全球数字化进程的加速，云计算作为新一代信息技术的核心，已经成为企业数字化转型的重要支撑。云计算具有资源池化、按需分配、弹性扩展等特点，能够帮助企业降低 IT 基础设施成本，提升运营效率。
-
-从公有云到私有云，从混合云到边缘云，云计算的形态不断演进，以满足不同行业的多样化需求。在金融行业，云计算可以支撑高频交易和风险建模；在制造业，云计算能够实现生产数据的实时分析与优化。未来，随着 5G 技术和物联网的融合发展，云计算的应用边界将进一步拓展。
-    """,
-    "示例三（人工编写文本）": """
-今天早上我六点半就醒了，窗外的天还是灰蒙蒙的，听见楼下有卖豆浆油条的吆喝声，突然就很想吃。磨蹭了十分钟才起床，洗漱完下楼的时候，那个大爷的摊子已经快收了，还好剩最后一份，热乎乎的油条泡在豆浆里，简直是人间美味！
-
-上午在家写作业，数学的最后一道大题卡了我快一个小时，草稿纸用了三张，最后还是去问了隔壁的姐姐，她讲的方法比老师的简单多了，一下子就懂了。下午和同学去公园打球，风有点大，但是玩得特别开心，回家的时候天都黑了，妈妈做了我爱吃的红烧肉，今天真是充实的一天。
-    """,
-    "示例四（人工编写文本）": """
-我家的小猫叫咪咪，是去年冬天从楼下捡回来的流浪猫，刚来的时候瘦瘦小小的，毛都打结了，还特别怕人，躲在沙发底下好几天不肯出来。我每天都给它喂猫粮和温水，慢慢的它才敢出来蹭我的腿。
-
-现在咪咪已经长成一只胖乎乎的大猫了，黄色的毛油光水滑的，特别喜欢趴在我的书桌上睡觉，有时候还会踩我的笔记本键盘，把我写了一半的文档弄乱。虽然经常捣乱，但每次我不开心的时候，它都会跳上我的膝盖，用小脑袋蹭我的手，瞬间就觉得心情好多了。咪咪真是我最好的小伙伴！
-    """
-}
-
-# -------------------------------------------------------------
 # 4. 工具函数：文档解析
 # -------------------------------------------------------------
 def extract_text_from_pdf(file):
@@ -196,18 +204,6 @@ def extract_text_from_docx(file):
         st.error(f"Word 解析失败: {e}")
         return None
 
-def extract_text_from_image(image):
-    """从图片中提取文字（复用模型的多模态能力）"""
-    try:
-        # 先尝试用PIL处理图片
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
-        return img_byte_arr
-    except Exception as e:
-        st.error(f"图片处理失败: {e}")
-        return None
-
 # -------------------------------------------------------------
 # 5. 模型调用函数
 # -------------------------------------------------------------
@@ -222,7 +218,10 @@ def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
         if is_image and image_data:
             # 图片模式 (GLM-4V)
             import base64
-            base64_image = base64.b64encode(image_data).decode('utf-8')
+            img_byte_arr = io.BytesIO()
+            image_data.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
+            base64_image = base64.b64encode(img_byte_arr).decode('utf-8')
             
             response = client.chat.completions.create(
                 model="glm-4v", 
@@ -278,7 +277,7 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
         if is_image and image_data:
             response = model.generate_content([
                 "请分析这张图片中的文字内容，并按照系统提示的 JSON 格式输出。", 
-                Image.open(io.BytesIO(image_data))
+                image_data
             ])
         else:
             response = model.generate_content(content)
@@ -321,79 +320,54 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_stable_visitor_id():
-    """
-    生成稳定的访客ID：基于用户设备特征（浏览器/语言/时区等），跨会话不变
-    无需获取IP/隐私信息，仅使用Streamlit可获取的公开客户端信息
-    """
-    # 优先从 cookies 读取已生成的访客ID（跨会话持久化）
-    if "visitor_id_stable" in st.session_state:
-        return st.session_state["visitor_id_stable"]
-    
-    try:
-        # 1. 获取客户端特征（Streamlit 1.28+ 支持）
-        client_info = st.runtime.get_instance()._session_client_info
-        # 提取稳定的设备特征（避免敏感信息）
-        device_fingerprint = {
-            "browser": client_info.get("browser", "unknown"),
-            "browser_version": client_info.get("browser_version", "unknown"),
-            "os": client_info.get("os", "unknown"),
-            "language": client_info.get("language", "unknown"),
-            "screen_resolution": client_info.get("screen_resolution", "unknown"),
-            "timezone": client_info.get("timezone", "unknown")
-        }
-        
-        # 2. 对特征进行哈希（生成固定长度的唯一标识）
-        fingerprint_str = json.dumps(device_fingerprint, sort_keys=True)
-        stable_id = hashlib.md5(fingerprint_str.encode()).hexdigest()  # MD5仅用于生成标识，无安全风险
-        
-    except Exception as e:
-        # 降级方案：若无法获取客户端信息，使用浏览器本地存储（cookies）
-        stable_id = st.query_params.get("vid", str(uuid.uuid4()))
-        # 将ID写入查询参数，供下次访问使用
-        st.query_params["vid"] = stable_id
-    
-    # 3. 持久化到会话状态
-    st.session_state["visitor_id_stable"] = stable_id
-    return stable_id
+def get_visitor_id():
+    """获取或生成访客ID"""
+    if "visitor_id" not in st.session_state:
+        st.session_state["visitor_id"] = str(uuid.uuid4())
+    return st.session_state["visitor_id"]
 
 def track_and_get_stats():
-    """修复版：使用稳定访客ID，避免同一用户重复计UV"""
+    """核心统计逻辑"""
     init_db()
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
     today_str = datetime.datetime.utcnow().date().isoformat()
-    visitor_id = get_stable_visitor_id()  # 替换为稳定ID生成函数
+    visitor_id = get_visitor_id()
 
-    # --- 1. PV 统计：每次页面加载都+1 ---
-    c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
-    c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
+    # --- 写操作 (仅当本Session未计数时执行) ---
+    if "has_counted" not in st.session_state:
+        try:
+            # 1. 更新每日PV
+            c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
+            c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
+            
+            # 2. 更新访客UV信息
+            c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
+            exists = c.fetchone()
+            
+            if exists:
+                c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
+            else:
+                c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
+                          (visitor_id, today_str, today_str))
+            
+            conn.commit()
+            st.session_state["has_counted"] = True
+            
+        except Exception as e:
+            st.error(f"数据库写入错误: {e}")
 
-    # --- 2. UV 统计：仅新访客（稳定ID未存在）才+1 ---
-    c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
-    exists = c.fetchone()
-    
-    if not exists:
-        # 新访客：插入记录（UV+1）
-        c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
-                  (visitor_id, today_str, today_str))
-    else:
-        # 老访客：仅更新最后访问时间
-        c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
-
-    conn.commit()  # 必须提交所有修改
-
-    # --- 读取统计数据 ---
-    # 今日 UV：今日有访问记录的唯一访客数
+    # --- 读操作 ---
+    # 1. 获取今日UV
     c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
     today_uv = c.fetchone()[0]
     
-    # 历史总 UV：所有唯一访客数
+    # 2. 获取历史总UV
     c.execute("SELECT COUNT(*) FROM visitors")
     total_uv = c.fetchone()[0]
 
-    # 今日 PV
+    # 3. 获取今日PV
     c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
     res_pv = c.fetchone()
     today_pv = res_pv[0] if res_pv else 0
@@ -403,11 +377,11 @@ def track_and_get_stats():
     return today_uv, total_uv, today_pv
 
 # -------------------------------------------------------------
-# 7. 主UI布局（核心：新增快捷按钮+文本框内嵌上传功能）
+# 7. UI 布局与主逻辑
 # -------------------------------------------------------------
 # 页面标题
 st.markdown('<div class="main-header">🐰 AI兔子 内容与剽窃检测系统</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">输入文本、上传文档/图片，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
 # 模型选择
 model_provider = st.radio(
@@ -417,111 +391,72 @@ model_provider = st.radio(
     key="model_selector"
 )
 
-st.markdown("---")
-
-# 初始化会话状态
-if "input_text" not in st.session_state:
-    st.session_state.input_text = ""
-if "uploaded_image_data" not in st.session_state:
-    st.session_state.uploaded_image_data = None
-if "uploaded_file_name" not in st.session_state:
-    st.session_state.uploaded_file_name = ""
-if "is_image_mode" not in st.session_state:
-    st.session_state.is_image_mode = False
-
-# 核心：文本输入区域（新增快捷按钮）
-st.markdown("### 📝 输入待检测内容")
-
-# -------------------------- 新增快捷按钮 --------------------------
-st.markdown('<div class="shortcut-btn-container">', unsafe_allow_html=True)
-for btn_label, sample_text in SAMPLE_TEXTS.items():
-    if st.button(btn_label, key=f"btn_{btn_label}", use_container_width=False):
-        st.session_state.input_text = sample_text.strip()
-        st.session_state.is_image_mode = False
-        st.session_state.uploaded_file_name = ""
-st.markdown('</div>', unsafe_allow_html=True)
-# ------------------------------------------------------------------
-
-# 文本输入框
-text_input = st.text_area(
-    "在此粘贴文本，或上传文档/图片自动提取文字",
-    value=st.session_state.input_text,
-    height=200,
-    key="main_text_area"
-)
-# 同步输入框内容到会话状态
-st.session_state.input_text = text_input
-
-# 内嵌上传按钮区域
-st.markdown('<div class="upload-container">', unsafe_allow_html=True)
-# 文档上传按钮
-doc_file = st.file_uploader(
-    "上传文档 (PDF/Word)",
-    type=['pdf', 'docx'],
-    key="doc_uploader",
-    label_visibility="collapsed"
-)
-
-# 图片上传按钮
-img_file = st.file_uploader(
-    "上传图片 (PNG/JPG)",
-    type=['png', 'jpg', 'jpeg'],
-    key="img_uploader",
-    label_visibility="collapsed"
-)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 处理文档上传
-if doc_file:
-    with st.spinner("正在解析文档..."):
-        file_name = doc_file.name
-        if file_name.endswith('.pdf'):
-            extracted_text = extract_text_from_pdf(doc_file)
-        elif file_name.endswith('.docx'):
-            extracted_text = extract_text_from_docx(doc_file)
-        
-        if extracted_text and len(extracted_text) > 10:
-            st.session_state.input_text = extracted_text
-            st.session_state.uploaded_file_name = file_name
-            st.session_state.is_image_mode = False
-            st.success(f"✅ 文档《{file_name}》解析成功！共 {len(extracted_text)} 字")
-            st.rerun()
-        else:
-            st.error("❌ 文档解析失败或内容为空")
+# 初始化会话状态（用于快捷按钮文本填充）
+if "sample_text" not in st.session_state:
+    st.session_state.sample_text = ""
 
-# 处理图片上传
-if img_file:
-    with st.spinner("正在处理图片..."):
-        image = Image.open(img_file)
-        st.image(image, caption=f"预览：{img_file.name}", width=300)
-        image_data = extract_text_from_image(image)
-        if image_data:
-            st.session_state.uploaded_image_data = image_data
-            st.session_state.uploaded_file_name = img_file.name
-            st.session_state.is_image_mode = True
-            st.session_state.input_text = ""  # 图片模式清空文本框
-            st.success(f"✅ 图片《{img_file.name}》上传成功！")
-        else:
-            st.error("❌ 图片处理失败")
+# 输入方式选项卡
+tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传 (PDF/Word)", "🖼️ 图片分析"])
 
-# 显示已上传文件信息
-if st.session_state.uploaded_file_name:
-    st.markdown(f'<div class="file-info">当前已加载：{st.session_state.uploaded_file_name}</div>', unsafe_allow_html=True)
-
-# 分析按钮
+content_to_analyze = ""
+image_to_analyze = None
+is_image_mode = False
 process_trigger = False
-col1, col2 = st.columns([1, 10])
-with col1:
-    if st.button("开始分析", type="primary", key="btn_analyze"):
-        # 检查输入
-        if st.session_state.input_text.strip() or (st.session_state.is_image_mode and st.session_state.uploaded_image_data):
+
+with tab1:
+    # 新增：快捷按钮区域
+    st.markdown('<div class="shortcut-btn-container">', unsafe_allow_html=True)
+    for btn_label, sample_content in SAMPLE_TEXTS.items():
+        if st.button(btn_label, key=f"btn_sample_{btn_label}", use_container_width=False):
+            st.session_state.sample_text = sample_content.strip()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # 文本输入框（关联会话状态）
+    text_input = st.text_area(
+        "在此粘贴或输入需要检测的文字：", 
+        value=st.session_state.sample_text,
+        height=200
+    )
+    
+    if st.button("开始分析文本", key="btn_text", type="primary"):
+        if text_input.strip():
+            content_to_analyze = text_input
             process_trigger = True
         else:
-            st.warning("⚠️ 请输入文本或上传有效文件")
+            st.warning("请输入文字。")
+
+with tab2:
+    uploaded_file = st.file_uploader("上传文档", type=['pdf', 'docx'])
+    if st.button("开始分析文档", key="btn_doc", type="primary"):
+        if uploaded_file:
+            with st.spinner("正在解析文档..."):
+                if uploaded_file.name.endswith('.pdf'):
+                    content_to_analyze = extract_text_from_pdf(uploaded_file)
+                elif uploaded_file.name.endswith('.docx'):
+                    content_to_analyze = extract_text_from_docx(uploaded_file)
+                
+                if content_to_analyze and len(content_to_analyze) > 10:
+                    process_trigger = True
+                    st.success(f"文档解析成功！共 {len(content_to_analyze)} 字。")
+                else:
+                    st.error("文档解析失败或内容为空。")
+        else:
+            st.warning("请先上传文件。")
+
+with tab3:
+    uploaded_image = st.file_uploader("上传包含文字的图片", type=['png', 'jpg', 'jpeg'])
+    if uploaded_image:
+        image_to_analyze = Image.open(uploaded_image)
+        st.image(image_to_analyze, caption="预览图片", use_container_width=True)
+        if st.button("开始分析图片", key="btn_img", type="primary"):
+            is_image_mode = True
+            process_trigger = True
 
 # --- 执行分析 ---
 if process_trigger:
-    # 获取API Key
+    # 根据选择自动获取 Key
     current_api_key = None
     try:
         if "Gemini" in model_provider:
@@ -541,21 +476,10 @@ if process_trigger:
         start_time = time.time()
         
         # 选择模型调用
-        content_to_analyze = st.session_state.input_text.strip() if not st.session_state.is_image_mode else ""
         if "Gemini" in model_provider:
-            result = analyze_with_gemini(
-                current_api_key, 
-                content_to_analyze, 
-                st.session_state.is_image_mode, 
-                st.session_state.uploaded_image_data
-            )
+            result = analyze_with_gemini(current_api_key, content_to_analyze, is_image_mode, image_to_analyze)
         else:
-            result = analyze_with_zhipu(
-                current_api_key, 
-                content_to_analyze, 
-                st.session_state.is_image_mode, 
-                st.session_state.uploaded_image_data
-            )
+            result = analyze_with_zhipu(current_api_key, content_to_analyze, is_image_mode, image_to_analyze)
         
         end_time = time.time()
 
@@ -643,7 +567,6 @@ except Exception as e:
     today_uv, total_uv, today_pv = 0, 0, 0
 
 # 展示数据
-st.markdown("---")
 st.markdown(f"""
 <div class="metric-container">
     <div class="metric-box">
@@ -651,9 +574,6 @@ st.markdown(f"""
     </div>
     <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
         <div class="metric-sub">历史总 UV: {total_uv} 总独立访客</div>
-    </div>
-    <div class="metric-box">
-        <div class="metric-sub">今日 PV: {today_pv} 访问量</div>
     </div>
 </div>
 """, unsafe_allow_html=True)

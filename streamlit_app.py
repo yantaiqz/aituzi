@@ -7,6 +7,8 @@ from PIL import Image
 import io
 import json
 import time
+import hashlib
+
 
 # -------------------------------------------------------------
 # 1. 页面配置与 CSS 样式（移除侧边栏相关样式，优化主页面布局）
@@ -424,61 +426,89 @@ def get_visitor_id():
         # 生成一个唯一的随机ID，并保存在当前会话状态中
         st.session_state["visitor_id"] = str(uuid.uuid4())
     return st.session_state["visitor_id"]
+
+def get_stable_visitor_id():
+    """
+    生成稳定的访客ID：基于用户设备特征（浏览器/语言/时区等），跨会话不变
+    无需获取IP/隐私信息，仅使用Streamlit可获取的公开客户端信息
+    """
+    # 优先从 cookies 读取已生成的访客ID（跨会话持久化）
+    if "visitor_id_stable" in st.session_state:
+        return st.session_state["visitor_id_stable"]
+    
+    try:
+        # 1. 获取客户端特征（Streamlit 1.28+ 支持）
+        client_info = st.runtime.get_instance()._session_client_info
+        # 提取稳定的设备特征（避免敏感信息）
+        device_fingerprint = {
+            "browser": client_info.get("browser", "unknown"),
+            "browser_version": client_info.get("browser_version", "unknown"),
+            "os": client_info.get("os", "unknown"),
+            "language": client_info.get("language", "unknown"),
+            "screen_resolution": client_info.get("screen_resolution", "unknown"),
+            "timezone": client_info.get("timezone", "unknown")
+        }
+        
+        # 2. 对特征进行哈希（生成固定长度的唯一标识）
+        fingerprint_str = json.dumps(device_fingerprint, sort_keys=True)
+        stable_id = hashlib.md5(fingerprint_str.encode()).hexdigest()  # MD5仅用于生成标识，无安全风险
+        
+    except Exception as e:
+        # 降级方案：若无法获取客户端信息，使用浏览器本地存储（cookies）
+        stable_id = st.query_params.get("vid", str(uuid.uuid4()))
+        # 将ID写入查询参数，供下次访问使用
+        st.query_params["vid"] = stable_id
+    
+    # 3. 持久化到会话状态
+    st.session_state["visitor_id_stable"] = stable_id
+    return stable_id
+
+
 def track_and_get_stats():
-    """修复版：分离 PV 和 UV 统计逻辑"""
+    """修复版：使用稳定访客ID，避免同一用户重复计UV"""
     init_db()
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
     today_str = datetime.datetime.utcnow().date().isoformat()
-    visitor_id = get_visitor_id()
+    visitor_id = get_stable_visitor_id()  # 替换为稳定ID生成函数
 
-    # --- 1. PV 统计：每次页面加载都+1（不受会话标记限制）---
-    # 确保今日记录存在
+    # --- 1. PV 统计：每次页面加载都+1 ---
     c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
-    # 每次加载页面都执行 PV+1
     c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
 
-    # --- 2. UV 统计：仅在新会话/新用户时+1（受会话标记限制）---
-    if "has_counted_uv" not in st.session_state:
-        try:
-            # 检查是否是新访客
-            c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
-            exists = c.fetchone()
-            
-            if exists:
-                # 老访客：更新最后访问时间
-                c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
-            else:
-                # 新访客：新增记录 → UV+1
-                c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
-                          (visitor_id, today_str, today_str))
-            
-            st.session_state["has_counted_uv"] = True  # 仅标记 UV 已统计
-            
-        except Exception as e:
-            st.error(f"数据库写入错误: {e}")
+    # --- 2. UV 统计：仅新访客（稳定ID未存在）才+1 ---
+    c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
+    exists = c.fetchone()
+    
+    if not exists:
+        # 新访客：插入记录（UV+1）
+        c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
+                  (visitor_id, today_str, today_str))
+    else:
+        # 老访客：仅更新最后访问时间
+        c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
+
+    conn.commit()  # 必须提交所有修改
 
     # --- 读取统计数据 ---
-    # 今日 UV：今日有访问记录的访客数
+    # 今日 UV：今日有访问记录的唯一访客数
     c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
     today_uv = c.fetchone()[0]
     
-    # 历史总 UV：所有访客数
+    # 历史总 UV：所有唯一访客数
     c.execute("SELECT COUNT(*) FROM visitors")
     total_uv = c.fetchone()[0]
 
-    # 今日 PV：直接读取
+    # 今日 PV
     c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
     res_pv = c.fetchone()
     today_pv = res_pv[0] if res_pv else 0
     
-    conn.commit()  # 注意：必须提交所有修改
     conn.close()
     
     return today_uv, total_uv, today_pv
-# -------------------------- 页面展示 --------------------------
-
+    
 # 执行统计
 try:
     today_uv, total_uv, today_pv = track_and_get_stats()

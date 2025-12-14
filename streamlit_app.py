@@ -379,135 +379,160 @@ if process_trigger:
         </div>
         """, unsafe_allow_html=True)
 
+
 import streamlit as st
-import json
 import datetime
-import os  
 import sqlite3
 
-# -------------------------- 访问者计数核心配置 --------------------------
-# 改用SQLite数据库（云端持久化，无文件丢失问题）
+# -------------------------- 配置 --------------------------
 DB_FILE = "visit_stats.db"
 
 def init_db():
-    """初始化SQLite数据库（兼容云端/本地）"""
+    """初始化数据库表结构"""
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
-    # 创建访问统计表：日期、日计数、总计数、UV计数
-    c.execute('''CREATE TABLE IF NOT EXISTS visit_stats 
+    
+    # 表1：每日流量表 (用于统计PV - 页面访问量)
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_traffic 
                  (date TEXT PRIMARY KEY, 
-                  daily_count INTEGER DEFAULT 0,
-                  total_count INTEGER DEFAULT 0,
-                  unique_visitors INTEGER DEFAULT 0)''')
-    # 创建访客表（用于UV去重）
+                  pv_count INTEGER DEFAULT 0)''')
+                  
+    # 表2：访客表 (用于统计UV - 独立访客)
+    # visitor_id: 唯一ID
+    # first_visit: 第一次访问时间 (用于留存分析，虽暂未显示但建议保留)
+    # last_visit: 最后一次访问日期 (关键：用于计算今日UV)
     c.execute('''CREATE TABLE IF NOT EXISTS visitors 
                  (visitor_id TEXT PRIMARY KEY, 
-                  first_visit_date TEXT)''')
+                  first_visit_date TEXT,
+                  last_visit_date TEXT)''')
     conn.commit()
     conn.close()
 
 def get_visitor_id():
-    """生成唯一访客ID（基于会话+时间，避免重复）"""
+    """获取或生成访客ID"""
     if "visitor_id" not in st.session_state:
-        # 组合会话ID+时间戳，确保唯一性
+        # 使用 Session ID + 哈希 确保同一浏览器会话ID不变
+        # 注意：如果用户刷新浏览器(F5)，Streamlit通常会视为新会话。
+        # 若需更持久的指纹，需要结合Cookie (Streamlit原生不支持，需组件)
         session_id = str(hash(st.runtime.get_instance()._session_id))
-        timestamp = str(datetime.datetime.now().timestamp())
-        st.session_state["visitor_id"] = f"{session_id}_{timestamp}"
+        st.session_state["visitor_id"] = session_id
     return st.session_state["visitor_id"]
 
-def update_daily_visits():
+def track_and_get_stats():
     """
-    安全更新访问量统计（原生SQLite实现，无第三方依赖）：
-    1. 每日访问量（PV）：当日所有访问次数
-    2. 总访问量：累计所有访问次数
-    3. 独立访客（UV）：去重后的访客数
+    核心逻辑：
+    1. 如果是新会话，执行写操作（计数+1）。
+    2. 无论是否新会话，都执行读操作（获取最新数据）。
     """
-    try:
-        # 初始化数据库
-        init_db()
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        c = conn.cursor()
-        
-        # 今日日期（UTC格式，避免时区问题）
-        today_str = datetime.datetime.utcnow().date().isoformat()
-        visitor_id = get_visitor_id()
-        
-        # 防重复计数：单会话仅统计一次PV/UV
-        if "has_counted" in st.session_state:
-            # 读取当前计数返回
-            c.execute("SELECT daily_count, total_count, unique_visitors FROM visit_stats WHERE date=?", (today_str,))
-            res = c.fetchone()
-            if res:
-                daily, total, uv = res
+    init_db()
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    c = conn.cursor()
+    
+    today_str = datetime.datetime.utcnow().date().isoformat()
+    visitor_id = get_visitor_id()
+
+    # --- 写操作 (仅当本Session未计数时执行) ---
+    if "has_counted" not in st.session_state:
+        try:
+            # 1. 更新每日PV (使用原子更新防止并发覆盖)
+            # 尝试插入今日行，如果存在则忽略
+            c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
+            # 更新计数
+            c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
+            
+            # 2. 更新访客UV信息
+            # 检查访客是否存在
+            c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
+            exists = c.fetchone()
+            
+            if exists:
+                # 老访客：更新最后访问时间为今天
+                c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
             else:
-                daily, total, uv = 0, 0, 0
-            conn.close()
-            return daily
-        
-        # 1. 检查今日数据是否存在
-        c.execute("SELECT daily_count, total_count, unique_visitors FROM visit_stats WHERE date=?", (today_str,))
-        res = c.fetchone()
-        
-        if res:
-            daily_count, total_count, unique_visitors = res
-            # 日计数+1
-            daily_count += 1
-            # 总计数+1
-            total_count += 1
-        else:
-            # 当日首次访问，初始化数据
-            daily_count = 1
-            # 读取总计数（累加）
-            c.execute("SELECT SUM(total_count) FROM visit_stats")
-            total_sum = c.fetchone()[0] or 0
-            total_count = total_sum + 1
-            # 初始化UV
-            unique_visitors = 0
-        
-        # 2. 统计UV：新访客则+1
-        c.execute("SELECT 1 FROM visitors WHERE visitor_id=?", (visitor_id,))
-        if not c.fetchone():
-            # 新访客，插入访客表
-            c.execute("INSERT INTO visitors (visitor_id, first_visit_date) VALUES (?, ?)", 
-                      (visitor_id, today_str))
-            unique_visitors += 1
-        
-        # 3. 保存今日数据（新增/更新）
-        c.execute("""
-            REPLACE INTO visit_stats (date, daily_count, total_count, unique_visitors) 
-            VALUES (?, ?, ?, ?)
-        """, (today_str, daily_count, total_count, unique_visitors))
-        
-        conn.commit()
-        conn.close()
-        
-        # 标记会话已计数
-        st.session_state["has_counted"] = True
-        
-        return daily_count
-        
-    except Exception as e:
-        # 异常时使用内存计数兜底（避免返回0）
-        if "fallback_daily_count" not in st.session_state:
-            st.session_state["fallback_daily_count"] = 1
-        else:
-            st.session_state["fallback_daily_count"] += 1
-        return st.session_state["fallback_daily_count"]
+                # 新访客：插入记录
+                c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
+                          (visitor_id, today_str, today_str))
+            
+            conn.commit()
+            # 标记已计数，防止同一会话重复刷新导致PV暴涨（根据需求可保留或移除此行）
+            st.session_state["has_counted"] = True
+            
+        except Exception as e:
+            st.error(f"数据库写入错误: {e}")
 
-# -------------------------- 计数使用示例 --------------------------
-# 更新并获取今日访问量
-daily_visits = update_daily_visits()
-visit_text = f"今日访问: {daily_visits}"
+    # --- 读操作 (每次刷新都读取最新数据) ---
+    # 1. 获取今日UV (条件：last_visit_date 是今天)
+    c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
+    today_uv = c.fetchone()[0]
+    
+    # 2. 获取历史总UV (条件：visitors表总行数)
+    c.execute("SELECT COUNT(*) FROM visitors")
+    total_uv = c.fetchone()[0]
 
-# 在页面展示计数结果（原位置保留）
-st.markdown(f"""
-<div style='text-align:center; color:#94a3b8; font-size:0.75rem; margin-top:40px; line-height: 1.5;'>
-    基于对数正态分布模型估算<br>
-    <span style="opacity: 0.7">{visit_text}</span>
-</div>
+    # 3. 获取今日PV (可选，如果需要显示页面刷新次数)
+    c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
+    res_pv = c.fetchone()
+    today_pv = res_pv[0] if res_pv else 0
+    
+    conn.close()
+    
+    return today_uv, total_uv, today_pv
+
+# -------------------------- 页面展示部分 --------------------------
+
+# 执行统计
+today_uv, total_uv, today_pv = track_and_get_stats()
+
+# CSS 样式美化
+st.markdown("""
+<style>
+    .metric-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+    .metric-box {
+        text-align: center;
+    }
+    .metric-label {
+        color: #6c757d;
+        font-size: 0.85rem;
+        margin-bottom: 2px;
+    }
+    .metric-value {
+        color: #212529;
+        font-size: 1.2rem;
+        font-weight: bold;
+    }
+    .metric-sub {
+        font-size: 0.7rem;
+        color: #adb5bd;
+    }
+</style>
 """, unsafe_allow_html=True)
 
-# 使用扩展计数
-#daily, total, uv = update_visit_stats()
-#st.markdown(f"今日访问：{daily} | 总访问：{total} | 独立访客：{uv}", unsafe_allow_html=True)
-
+# 展示数据
+st.markdown(f"""
+<div class="metric-container">
+    <div class="metric-box">
+        <div class="metric-label">今日 UV</div>
+        <div class="metric-value">{today_uv}</div>
+        <div class="metric-sub">访客数</div>
+    </div>
+    <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
+        <div class="metric-label">历史总 UV</div>
+        <div class="metric-value">{total_uv}</div>
+        <div class="metric-sub">总独立访客</div>
+    </div>
+    <div class="metric-box">
+        <div class="metric-label">今日 PV</div>
+        <div class="metric-value">{today_pv}</div>
+        <div class="metric-sub">访问次数</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)

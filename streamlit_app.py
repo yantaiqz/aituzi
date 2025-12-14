@@ -9,13 +9,13 @@ import json
 import time
 
 # -------------------------------------------------------------
-# 1. 页面配置与 CSS 样式
+# 1. 页面配置与 CSS 样式（移除侧边栏相关样式，优化主页面布局）
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="AI 内容与剽窃检测系统",
     page_icon="🕵️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # 强制折叠侧边栏
 )
 
 # 自定义 CSS 美化界面
@@ -54,13 +54,24 @@ st.markdown("""
         font-size: 0.9rem;
         font-style: italic;
     }
+    .model-config-card {
+        background-color: #e8f4f8;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        border-left: 4px solid #1E88E5;
+    }
+    .stRadio > div {
+        flex-direction: row;
+        gap: 20px;
+        justify-content: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # 2. 核心分析逻辑与 Prompt
 # -------------------------------------------------------------
-
 ANALYSIS_SYSTEM_PROMPT = """
 你是一位专业的法医语言学家和学术诚信专家。你的任务是分析用户提供的文本（或图片中的文字），完成以下两个核心任务：
 
@@ -93,7 +104,6 @@ ANALYSIS_SYSTEM_PROMPT = """
 # -------------------------------------------------------------
 # 3. 工具函数：文档解析
 # -------------------------------------------------------------
-
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -119,11 +129,8 @@ def extract_text_from_docx(file):
 # -------------------------------------------------------------
 # 4. 模型调用函数
 # -------------------------------------------------------------
-
 def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
-    """
-    使用智谱 AI 进行分析。
-    """
+    """使用智谱 AI 进行分析"""
     if not api_key:
         return {"error": "未检测到智谱 API Key，请检查 secrets 配置。"}
     
@@ -177,9 +184,7 @@ def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
         return {"error": f"智谱 API 调用失败: {str(e)}"}
 
 def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
-    """
-    使用 Google Gemini 进行分析。
-    """
+    """使用 Google Gemini 进行分析"""
     if not api_key:
         return {"error": "未检测到 Gemini API Key，请检查 secrets 配置。"}
     
@@ -205,22 +210,27 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
         return {"error": f"Gemini API 调用失败: {str(e)}"}
 
 # -------------------------------------------------------------
-# 5. UI 布局与主逻辑
+# 5. UI 布局与主逻辑（核心修改：移除侧边栏，模型选择移到主页面）
 # -------------------------------------------------------------
+# 页面标题
+st.markdown('<div class="main-header">🕵️ AI 内容与剽窃检测系统</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
-# --- 侧边栏：设置 ---
-with st.sidebar:
-    st.header("⚙️ 配置面板")
-    
-    model_provider = st.radio(
-        "选择分析模型",
-        ("智谱 AI (默认)", "Google Gemini (进阶)"),
-        captions=["国内访问稳定，GLM-4模型", "多模态能力强，Gemini-1.5模型"]
-    )
-    
-    st.markdown("---")
-    
-    # 修改点：不再显示输入框，而是显示状态
+# 模型配置卡片（替代原侧边栏，放在主页面顶部）
+st.markdown('<div class="model-config-card">', unsafe_allow_html=True)
+st.markdown("### ⚙️ 模型配置", unsafe_allow_html=True)
+
+# 模型选择（横向排列，更美观）
+model_provider = st.radio(
+    "选择分析模型",
+    ("智谱 AI (默认)", "Google Gemini (进阶)"),
+    captions=["国内访问稳定，GLM-4模型", "多模态能力强，Gemini-2.5模型"],
+    key="model_selector"
+)
+
+# API Key 状态展示（根据选择的模型动态显示）
+col1, col2 = st.columns(2)
+with col1:
     if "Gemini" in model_provider:
         if "GEMINI_API_KEY" in st.secrets:
             st.success("✅ Gemini API Key 已配置")
@@ -232,17 +242,13 @@ with st.sidebar:
         else:
             st.error("❌ 未配置 ZHIPU_API_KEY")
 
+with col2:
     st.info("""
-    **系统提示：**
-    Key 现已通过云端 Secrets 安全读取，无需手动输入。
+    🔒 安全提示：
+    API Key 通过云端 Secrets 安全读取，前端无暴露风险。
     """)
-    
-    st.markdown("---")
-    st.markdown("🔒 安全模式：API Key 不会在前端显示。")
 
-# --- 主页面 ---
-st.markdown('<div class="main-header">🕵️ AI 内容与剽窃检测系统</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)  # 关闭模型配置卡片
 
 # 输入方式选项卡
 tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传 (PDF/Word)", "🖼️ 图片分析"])
@@ -254,7 +260,7 @@ process_trigger = False
 
 with tab1:
     text_input = st.text_area("在此粘贴或输入需要检测的文字：", height=200)
-    if st.button("开始分析文本", key="btn_text"):
+    if st.button("开始分析文本", key="btn_text", type="primary"):
         if text_input.strip():
             content_to_analyze = text_input
             process_trigger = True
@@ -263,7 +269,7 @@ with tab1:
 
 with tab2:
     uploaded_file = st.file_uploader("上传文档", type=['pdf', 'docx'])
-    if st.button("开始分析文档", key="btn_doc"):
+    if st.button("开始分析文档", key="btn_doc", type="primary"):
         if uploaded_file:
             with st.spinner("正在解析文档..."):
                 if uploaded_file.name.endswith('.pdf'):
@@ -284,14 +290,13 @@ with tab3:
     if uploaded_image:
         image_to_analyze = Image.open(uploaded_image)
         st.image(image_to_analyze, caption="预览图片", use_container_width=True)
-        if st.button("开始分析图片", key="btn_img"):
+        if st.button("开始分析图片", key="btn_img", type="primary"):
             is_image_mode = True
             process_trigger = True
 
 # --- 执行分析 ---
 if process_trigger:
-    
-    # 修改点：根据选择自动获取 Key
+    # 根据选择自动获取 Key
     current_api_key = None
     try:
         if "Gemini" in model_provider:

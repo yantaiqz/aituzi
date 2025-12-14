@@ -7,21 +7,18 @@ from PIL import Image
 import io
 import json
 import time
-import sqlite3
-import uuid
-import datetime
 
 # -------------------------------------------------------------
-# 1. 页面配置与 CSS 样式（优化内嵌上传按钮样式）
+# 1. 页面配置与 CSS 样式（移除侧边栏相关样式，优化主页面布局）
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="AI兔子 内容与剽窃检测系统",
     page_icon="🐰",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed"  # 强制折叠侧边栏
 )
 
-# 自定义 CSS 美化界面（新增内嵌上传按钮样式）
+# 自定义 CSS 美化界面
 st.markdown("""
 <style>
     .main-header {
@@ -68,25 +65,6 @@ st.markdown("""
         flex-direction: row;
         gap: 20px;
         justify-content: center;
-    }
-    /* 新增：内嵌上传按钮样式 */
-    .upload-container {
-        margin: 10px 0;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
-    .upload-btn {
-        flex: 1;
-        min-width: 120px;
-    }
-    .file-info {
-        font-size: 0.85rem;
-        color: #2196F3;
-        margin-top: 5px;
-    }
-    .text-area-container {
-        position: relative;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -148,18 +126,6 @@ def extract_text_from_docx(file):
         st.error(f"Word 解析失败: {e}")
         return None
 
-def extract_text_from_image(image):
-    """从图片中提取文字（复用模型的多模态能力）"""
-    try:
-        # 先尝试用PIL处理图片
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
-        return img_byte_arr
-    except Exception as e:
-        st.error(f"图片处理失败: {e}")
-        return None
-
 # -------------------------------------------------------------
 # 4. 模型调用函数
 # -------------------------------------------------------------
@@ -174,7 +140,10 @@ def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
         if is_image and image_data:
             # 图片模式 (GLM-4V)
             import base64
-            base64_image = base64.b64encode(image_data).decode('utf-8')
+            img_byte_arr = io.BytesIO()
+            image_data.save(img_byte_arr, format='JPEG')
+            img_byte_arr = img_byte_arr.getvalue()
+            base64_image = base64.b64encode(img_byte_arr).decode('utf-8')
             
             response = client.chat.completions.create(
                 model="glm-4v", 
@@ -230,7 +199,7 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
         if is_image and image_data:
             response = model.generate_content([
                 "请分析这张图片中的文字内容，并按照系统提示的 JSON 格式输出。", 
-                Image.open(io.BytesIO(image_data))
+                image_data
             ])
         else:
             response = model.generate_content(content)
@@ -241,99 +210,17 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
         return {"error": f"Gemini API 调用失败: {str(e)}"}
 
 # -------------------------------------------------------------
-# 5. 访问统计逻辑
-# -------------------------------------------------------------
-DB_FILE = "aituzi_visit_stats.db"
-
-def init_db():
-    """初始化数据库（包含自动修复旧表结构的功能）"""
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    c = conn.cursor()
-    
-    # 1. 确保表存在
-    c.execute('''CREATE TABLE IF NOT EXISTS daily_traffic 
-                 (date TEXT PRIMARY KEY, 
-                  pv_count INTEGER DEFAULT 0)''')
-                  
-    c.execute('''CREATE TABLE IF NOT EXISTS visitors 
-                 (visitor_id TEXT PRIMARY KEY, 
-                  first_visit_date TEXT)''')
-    
-    # 2. 手动检查并添加缺失的列
-    c.execute("PRAGMA table_info(visitors)")
-    columns = [info[1] for info in c.fetchall()]
-    
-    if "last_visit_date" not in columns:
-        try:
-            c.execute("ALTER TABLE visitors ADD COLUMN last_visit_date TEXT")
-            c.execute("UPDATE visitors SET last_visit_date = first_visit_date WHERE last_visit_date IS NULL")
-        except Exception as e:
-            print(f"数据库升级失败: {e}")
-
-    conn.commit()
-    conn.close()
-
-def get_visitor_id():
-    """获取或生成访客ID"""
-    if "visitor_id" not in st.session_state:
-        st.session_state["visitor_id"] = str(uuid.uuid4())
-    return st.session_state["visitor_id"]
-
-def track_and_get_stats():
-    """核心统计逻辑"""
-    init_db()
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    c = conn.cursor()
-    
-    today_str = datetime.datetime.utcnow().date().isoformat()
-    visitor_id = get_visitor_id()
-
-    # 写操作 (仅当本Session未计数时执行)
-    if "has_counted" not in st.session_state:
-        try:
-            # 1. 更新每日PV
-            c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
-            c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
-            
-            # 2. 更新访客UV信息
-            c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
-            exists = c.fetchone()
-            
-            if exists:
-                c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
-            else:
-                c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
-                          (visitor_id, today_str, today_str))
-            
-            conn.commit()
-            st.session_state["has_counted"] = True
-            
-        except Exception as e:
-            st.error(f"数据库写入错误: {e}")
-
-    # 读操作
-    c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
-    today_uv = c.fetchone()[0]
-    
-    c.execute("SELECT COUNT(*) FROM visitors")
-    total_uv = c.fetchone()[0]
-
-    c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
-    res_pv = c.fetchone()
-    today_pv = res_pv[0] if res_pv else 0
-    
-    conn.close()
-    
-    return today_uv, total_uv, today_pv
-
-# -------------------------------------------------------------
-# 6. 主UI布局（核心：文本框内嵌上传功能）
+# 5. UI 布局与主逻辑（核心修改：移除侧边栏，模型选择移到主页面）
 # -------------------------------------------------------------
 # 页面标题
 st.markdown('<div class="main-header">🐰 AI兔子 内容与剽窃检测系统</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">输入文本、上传文档/图片，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
-# 模型选择
+# 模型配置卡片（替代原侧边栏，放在主页面顶部）
+#st.markdown('<div class="model-config-card">', unsafe_allow_html=True)
+#st.markdown("### ⚙️ 模型配置", unsafe_allow_html=True)
+
+# 模型选择（横向排列，更美观）
 model_provider = st.radio(
     "选择分析模型",
     ("智谱 AI (默认)", "Google Gemini (进阶)"),
@@ -341,98 +228,55 @@ model_provider = st.radio(
     key="model_selector"
 )
 
-st.markdown("---")
+st.markdown('</div>', unsafe_allow_html=True)  # 关闭模型配置卡片
 
-# 初始化会话状态
-if "uploaded_text" not in st.session_state:
-    st.session_state.uploaded_text = ""
-if "uploaded_image_data" not in st.session_state:
-    st.session_state.uploaded_image_data = None
-if "uploaded_file_name" not in st.session_state:
-    st.session_state.uploaded_file_name = ""
-if "is_image_mode" not in st.session_state:
-    st.session_state.is_image_mode = False
+# 输入方式选项卡
+tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传 (PDF/Word)", "🖼️ 图片分析"])
 
-# 核心：文本输入框 + 内嵌上传按钮
-st.markdown("### 📝 输入待检测内容")
-# 文本输入框
-text_input = st.text_area(
-    "在此粘贴文本，或上传文档/图片自动提取文字",
-    value=st.session_state.uploaded_text,
-    height=200,
-    key="main_text_area"
-)
-
-# 内嵌上传按钮区域
-st.markdown('<div class="upload-container">', unsafe_allow_html=True)
-# 文档上传按钮
-doc_file = st.file_uploader(
-    "上传文档 (PDF/Word)",
-    type=['pdf', 'docx'],
-    key="doc_uploader",
-    label_visibility="collapsed"
-)
-
-# 图片上传按钮
-img_file = st.file_uploader(
-    "上传图片 (PNG/JPG)",
-    type=['png', 'jpg', 'jpeg'],
-    key="img_uploader",
-    label_visibility="collapsed"
-)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# 处理文档上传
-if doc_file:
-    with st.spinner("正在解析文档..."):
-        file_name = doc_file.name
-        if file_name.endswith('.pdf'):
-            extracted_text = extract_text_from_pdf(doc_file)
-        elif file_name.endswith('.docx'):
-            extracted_text = extract_text_from_docx(doc_file)
-        
-        if extracted_text and len(extracted_text) > 10:
-            st.session_state.uploaded_text = extracted_text
-            st.session_state.uploaded_file_name = file_name
-            st.session_state.is_image_mode = False
-            st.success(f"✅ 文档《{file_name}》解析成功！共 {len(extracted_text)} 字")
-            # 刷新文本框
-            st.rerun()
-        else:
-            st.error("❌ 文档解析失败或内容为空")
-
-# 处理图片上传
-if img_file:
-    with st.spinner("正在处理图片..."):
-        image = Image.open(img_file)
-        st.image(image, caption=f"预览：{img_file.name}", width=300)
-        image_data = extract_text_from_image(image)
-        if image_data:
-            st.session_state.uploaded_image_data = image_data
-            st.session_state.uploaded_file_name = img_file.name
-            st.session_state.is_image_mode = True
-            st.success(f"✅ 图片《{img_file.name}》上传成功！")
-        else:
-            st.error("❌ 图片处理失败")
-
-# 显示已上传文件信息
-if st.session_state.uploaded_file_name:
-    st.markdown(f'<div class="file-info">当前已加载：{st.session_state.uploaded_file_name}</div>', unsafe_allow_html=True)
-
-# 分析按钮
+content_to_analyze = ""
+image_to_analyze = None
+is_image_mode = False
 process_trigger = False
-col1, col2 = st.columns([1, 10])
-with col1:
-    if st.button("开始分析", type="primary", key="btn_analyze"):
-        # 检查输入
-        if text_input.strip() or (st.session_state.is_image_mode and st.session_state.uploaded_image_data):
+
+with tab1:
+    text_input = st.text_area("在此粘贴或输入需要检测的文字：", height=200)
+    if st.button("开始分析文本", key="btn_text", type="primary"):
+        if text_input.strip():
+            content_to_analyze = text_input
             process_trigger = True
         else:
-            st.warning("⚠️ 请输入文本或上传有效文件")
+            st.warning("请输入文字。")
+
+with tab2:
+    uploaded_file = st.file_uploader("上传文档", type=['pdf', 'docx'])
+    if st.button("开始分析文档", key="btn_doc", type="primary"):
+        if uploaded_file:
+            with st.spinner("正在解析文档..."):
+                if uploaded_file.name.endswith('.pdf'):
+                    content_to_analyze = extract_text_from_pdf(uploaded_file)
+                elif uploaded_file.name.endswith('.docx'):
+                    content_to_analyze = extract_text_from_docx(uploaded_file)
+                
+                if content_to_analyze and len(content_to_analyze) > 10:
+                    process_trigger = True
+                    st.success(f"文档解析成功！共 {len(content_to_analyze)} 字。")
+                else:
+                    st.error("文档解析失败或内容为空。")
+        else:
+            st.warning("请先上传文件。")
+
+with tab3:
+    uploaded_image = st.file_uploader("上传包含文字的图片", type=['png', 'jpg', 'jpeg'])
+    if uploaded_image:
+        image_to_analyze = Image.open(uploaded_image)
+        st.image(image_to_analyze, caption="预览图片", use_container_width=True)
+        if st.button("开始分析图片", key="btn_img", type="primary"):
+            is_image_mode = True
+            process_trigger = True
 
 # --- 执行分析 ---
 if process_trigger:
-    # 获取API Key
+    # 根据选择自动获取 Key
     current_api_key = None
     try:
         if "Gemini" in model_provider:
@@ -452,21 +296,10 @@ if process_trigger:
         start_time = time.time()
         
         # 选择模型调用
-        content_to_analyze = text_input.strip() if not st.session_state.is_image_mode else ""
         if "Gemini" in model_provider:
-            result = analyze_with_gemini(
-                current_api_key, 
-                content_to_analyze, 
-                st.session_state.is_image_mode, 
-                st.session_state.uploaded_image_data
-            )
+            result = analyze_with_gemini(current_api_key, content_to_analyze, is_image_mode, image_to_analyze)
         else:
-            result = analyze_with_zhipu(
-                current_api_key, 
-                content_to_analyze, 
-                st.session_state.is_image_mode, 
-                st.session_state.uploaded_image_data
-            )
+            result = analyze_with_zhipu(current_api_key, content_to_analyze, is_image_mode, image_to_analyze)
         
         end_time = time.time()
 
@@ -546,15 +379,145 @@ if process_trigger:
         </div>
         """, unsafe_allow_html=True)
 
-# --- 访问统计展示 ---
+
+import sqlite3
+import uuid  # <--- 新增导入
+import datetime
+
+# -------------------------- 配置 --------------------------
+DB_FILE = "aituzi_visit_stats.db"
+
+def init_db():
+    """初始化数据库（包含自动修复旧表结构的功能）"""
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    c = conn.cursor()
+    
+    # 1. 确保表存在（这是旧逻辑）
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_traffic 
+                 (date TEXT PRIMARY KEY, 
+                  pv_count INTEGER DEFAULT 0)''')
+                  
+    c.execute('''CREATE TABLE IF NOT EXISTS visitors 
+                 (visitor_id TEXT PRIMARY KEY, 
+                  first_visit_date TEXT)''')
+    
+    # 2. 【关键修复】手动检查并添加缺失的列 (Schema Migration)
+    # 获取 visitors 表的所有列名
+    c.execute("PRAGMA table_info(visitors)")
+    columns = [info[1] for info in c.fetchall()]
+    
+    # 如果发现旧数据库里没有 last_visit_date，就动态添加进去
+    if "last_visit_date" not in columns:
+        try:
+            c.execute("ALTER TABLE visitors ADD COLUMN last_visit_date TEXT")
+            # 可选：把所有老数据的最后访问时间初始化为他们的首次访问时间，避免空值
+            c.execute("UPDATE visitors SET last_visit_date = first_visit_date WHERE last_visit_date IS NULL")
+        except Exception as e:
+            print(f"数据库升级失败: {e}")
+
+    conn.commit()
+    conn.close()
+
+def get_visitor_id():
+    """获取或生成访客ID（修复版：使用UUID替代不稳定的内部API）"""
+    if "visitor_id" not in st.session_state:
+        # 生成一个唯一的随机ID，并保存在当前会话状态中
+        st.session_state["visitor_id"] = str(uuid.uuid4())
+    return st.session_state["visitor_id"]
+
+def track_and_get_stats():
+    """核心统计逻辑"""
+    init_db()
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    c = conn.cursor()
+    
+    today_str = datetime.datetime.utcnow().date().isoformat()
+    visitor_id = get_visitor_id() # 这里调用修改后的函数
+
+    # --- 写操作 (仅当本Session未计数时执行) ---
+    if "has_counted" not in st.session_state:
+        try:
+            # 1. 更新每日PV
+            c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
+            c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
+            
+            # 2. 更新访客UV信息
+            c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
+            exists = c.fetchone()
+            
+            if exists:
+                c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
+            else:
+                c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
+                          (visitor_id, today_str, today_str))
+            
+            conn.commit()
+            st.session_state["has_counted"] = True
+            
+        except Exception as e:
+            st.error(f"数据库写入错误: {e}")
+
+    # --- 读操作 ---
+    # 1. 获取今日UV
+    c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
+    today_uv = c.fetchone()[0]
+    
+    # 2. 获取历史总UV
+    c.execute("SELECT COUNT(*) FROM visitors")
+    total_uv = c.fetchone()[0]
+
+    # 3. 获取今日PV
+    c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
+    res_pv = c.fetchone()
+    today_pv = res_pv[0] if res_pv else 0
+    
+    conn.close()
+    
+    return today_uv, total_uv, today_pv
+
+# -------------------------- 页面展示 --------------------------
+
+# 执行统计
 try:
     today_uv, total_uv, today_pv = track_and_get_stats()
 except Exception as e:
     st.error(f"统计模块出错: {e}")
     today_uv, total_uv, today_pv = 0, 0, 0
 
+# CSS 样式
+st.markdown("""
+<style>
+    .metric-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+    .metric-box {
+        text-align: center;
+    }
+    .metric-label {
+        color: #6c757d;
+        font-size: 0.85rem;
+        margin-bottom: 2px;
+    }
+    .metric-value {
+        color: #212529;
+        font-size: 1.2rem;
+        font-weight: bold;
+    }
+    .metric-sub {
+        font-size: 0.7rem;
+        color: #adb5bd;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # 展示数据
-st.markdown("---")
 st.markdown(f"""
 <div class="metric-container">
     <div class="metric-box">
@@ -562,9 +525,6 @@ st.markdown(f"""
     </div>
     <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
         <div class="metric-sub">历史总 UV: {total_uv} 总独立访客</div>
-    </div>
-    <div class="metric-box">
-        <div class="metric-sub">今日 PV: {today_pv} 访问量</div>
     </div>
 </div>
 """, unsafe_allow_html=True)

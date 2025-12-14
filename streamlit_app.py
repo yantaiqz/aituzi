@@ -217,7 +217,7 @@ st.markdown('<div class="main-header">🐰 AI兔子 内容与剽窃检测系统<
 st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
 # 模型配置卡片（替代原侧边栏，放在主页面顶部）
-st.markdown('<div class="model-config-card">', unsafe_allow_html=True)
+#st.markdown('<div class="model-config-card">', unsafe_allow_html=True)
 #st.markdown("### ⚙️ 模型配置", unsafe_allow_html=True)
 
 # 模型选择（横向排列，更美观）

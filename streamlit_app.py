@@ -12,7 +12,7 @@ import uuid
 import datetime
 
 # -------------------------------------------------------------
-# 1. 页面配置与 CSS 样式（新增快捷按钮样式）
+# 1. 页面配置与 CSS 样式（核心调整：快捷按钮并排样式）
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="AI兔子 内容与剽窃检测系统",
@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"  # 强制折叠侧边栏
 )
 
-# 自定义 CSS 美化界面（新增快捷按钮样式）
+# 自定义 CSS 美化界面（重点优化快捷按钮并排样式）
 st.markdown("""
 <style>
     .main-header {
@@ -69,26 +69,33 @@ st.markdown("""
         gap: 20px;
         justify-content: center;
     }
-    /* 新增：快捷按钮样式 */
+    /* 核心修改：快捷按钮并排样式 */
     .shortcut-btn-container {
         display: flex;
-        gap: 10px;
-        margin-bottom: 15px;
-        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+        width: 100%;
+        flex-wrap: nowrap; /* 强制不换行 */
+        overflow-x: auto;  /* 屏幕窄时横向滚动 */
+        padding: 5px 0;
     }
-    .shortcut-btn {
-        padding: 8px 16px;
-        border-radius: 6px;
+    .shortcut-btn-container > button {
+        flex: 1; /* 平均分配宽度 */
+        min-width: 180px; /* 最小宽度，保证按钮不挤变形 */
+        padding: 10px 8px;
+        border-radius: 8px;
         border: 1px solid #1E88E5;
         background-color: #e8f4f8;
         color: #1E88E5;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: all 0.2s ease;
+        font-size: 0.85rem;
+        white-space: nowrap; /* 按钮文字不换行 */
+        text-overflow: ellipsis; /* 文字过长时省略 */
+        overflow: hidden;
     }
-    .shortcut-btn:hover {
+    .shortcut-btn-container > button:hover {
         background-color: #1E88E5;
         color: white;
+        border-color: #1976D2;
     }
     /* 统计模块样式 */
     .metric-container {
@@ -117,6 +124,10 @@ st.markdown("""
     .metric-sub {
         font-size: 0.7rem;
         color: #adb5bd;
+    }
+    /* 隐藏Streamlit默认按钮边框 */
+    .stButton > button {
+        box-shadow: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -406,11 +417,14 @@ is_image_mode = False
 process_trigger = False
 
 with tab1:
-    # 新增：快捷按钮区域
+    # 核心修改：快捷按钮并排容器
     st.markdown('<div class="shortcut-btn-container">', unsafe_allow_html=True)
-    for btn_label, sample_content in SAMPLE_TEXTS.items():
-        if st.button(btn_label, key=f"btn_sample_{btn_label}", use_container_width=False):
-            st.session_state.sample_text = sample_content.strip()
+    # 循环创建4个按钮（并排）
+    btn_cols = st.columns(4)  # 分成4列，每列一个按钮
+    for idx, (btn_label, sample_content) in enumerate(SAMPLE_TEXTS.items()):
+        with btn_cols[idx]:
+            if st.button(btn_label, key=f"btn_sample_{btn_label}", use_container_width=True):
+                st.session_state.sample_text = sample_content.strip()
     st.markdown('</div>', unsafe_allow_html=True)
     
     # 文本输入框（关联会话状态）

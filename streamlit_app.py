@@ -424,57 +424,59 @@ def get_visitor_id():
         # 生成一个唯一的随机ID，并保存在当前会话状态中
         st.session_state["visitor_id"] = str(uuid.uuid4())
     return st.session_state["visitor_id"]
-
 def track_and_get_stats():
-    """核心统计逻辑"""
+    """修复版：分离 PV 和 UV 统计逻辑"""
     init_db()
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
     today_str = datetime.datetime.utcnow().date().isoformat()
-    visitor_id = get_visitor_id() # 这里调用修改后的函数
+    visitor_id = get_visitor_id()
 
-    # --- 写操作 (仅当本Session未计数时执行) ---
-    if "has_counted" not in st.session_state:
+    # --- 1. PV 统计：每次页面加载都+1（不受会话标记限制）---
+    # 确保今日记录存在
+    c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
+    # 每次加载页面都执行 PV+1
+    c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
+
+    # --- 2. UV 统计：仅在新会话/新用户时+1（受会话标记限制）---
+    if "has_counted_uv" not in st.session_state:
         try:
-            # 1. 更新每日PV
-            c.execute("INSERT OR IGNORE INTO daily_traffic (date, pv_count) VALUES (?, 0)", (today_str,))
-            c.execute("UPDATE daily_traffic SET pv_count = pv_count + 1 WHERE date=?", (today_str,))
-            
-            # 2. 更新访客UV信息
+            # 检查是否是新访客
             c.execute("SELECT visitor_id FROM visitors WHERE visitor_id=?", (visitor_id,))
             exists = c.fetchone()
             
             if exists:
+                # 老访客：更新最后访问时间
                 c.execute("UPDATE visitors SET last_visit_date=? WHERE visitor_id=?", (today_str, visitor_id))
             else:
+                # 新访客：新增记录 → UV+1
                 c.execute("INSERT INTO visitors (visitor_id, first_visit_date, last_visit_date) VALUES (?, ?, ?)", 
                           (visitor_id, today_str, today_str))
             
-            conn.commit()
-            st.session_state["has_counted"] = True
+            st.session_state["has_counted_uv"] = True  # 仅标记 UV 已统计
             
         except Exception as e:
             st.error(f"数据库写入错误: {e}")
 
-    # --- 读操作 ---
-    # 1. 获取今日UV
+    # --- 读取统计数据 ---
+    # 今日 UV：今日有访问记录的访客数
     c.execute("SELECT COUNT(*) FROM visitors WHERE last_visit_date=?", (today_str,))
     today_uv = c.fetchone()[0]
     
-    # 2. 获取历史总UV
+    # 历史总 UV：所有访客数
     c.execute("SELECT COUNT(*) FROM visitors")
     total_uv = c.fetchone()[0]
 
-    # 3. 获取今日PV
+    # 今日 PV：直接读取
     c.execute("SELECT pv_count FROM daily_traffic WHERE date=?", (today_str,))
     res_pv = c.fetchone()
     today_pv = res_pv[0] if res_pv else 0
     
+    conn.commit()  # 注意：必须提交所有修改
     conn.close()
     
     return today_uv, total_uv, today_pv
-
 # -------------------------- 页面展示 --------------------------
 
 # 执行统计

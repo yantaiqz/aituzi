@@ -218,35 +218,15 @@ st.markdown('<div class="sub-header">上传文档、图片或输入文本，一�
 
 # 模型配置卡片（替代原侧边栏，放在主页面顶部）
 st.markdown('<div class="model-config-card">', unsafe_allow_html=True)
-st.markdown("### ⚙️ 模型配置", unsafe_allow_html=True)
+#st.markdown("### ⚙️ 模型配置", unsafe_allow_html=True)
 
 # 模型选择（横向排列，更美观）
 model_provider = st.radio(
     "选择分析模型",
     ("智谱 AI (默认)", "Google Gemini (进阶)"),
-    captions=["国内访问稳定，GLM-4模型", "多模态能力强，Gemini-2.5模型"],
+    captions=["免费访问，GLM-4模型", "多模态能力强，Gemini-2.5模型"],
     key="model_selector"
 )
-
-# API Key 状态展示（根据选择的模型动态显示）
-col1, col2 = st.columns(2)
-with col1:
-    if "Gemini" in model_provider:
-        if "GEMINI_API_KEY" in st.secrets:
-            st.success("✅ Gemini API Key 已配置")
-        else:
-            st.error("❌ 未配置 GEMINI_API_KEY")
-    else:
-        if "ZHIPU_API_KEY" in st.secrets:
-            st.success("✅ 智谱 API Key 已配置")
-        else:
-            st.error("❌ 未配置 ZHIPU_API_KEY")
-
-with col2:
-    st.info("""
-    🔒 安全提示：
-    API Key 通过云端 Secrets 安全读取，前端无暴露风险。
-    """)
 
 st.markdown('</div>', unsafe_allow_html=True)  # 关闭模型配置卡片
 

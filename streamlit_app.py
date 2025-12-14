@@ -378,40 +378,134 @@ if process_trigger:
         AI 模型可能会产生幻觉（Hallucination），对于剽窃来源的引用请务必进行人工核实。
         </div>
         """, unsafe_allow_html=True)
-# 方案1：改用 Streamlit State + 云端数据库（推荐）
-# 需先安装：pip install streamlit-extras
-from streamlit_extras import session_state
+
+import streamlit as st
+import json
+import datetime
+import os  
 import sqlite3
 
-# 初始化SQLite数据库（云端持久化）
-conn = sqlite3.connect("visit_stats.db", check_same_thread=False)
-c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS visits 
-             (date TEXT PRIMARY KEY, count INTEGER)''')
-conn.commit()
+# -------------------------- 访问者计数核心配置 --------------------------
+# 改用SQLite数据库（云端持久化，无文件丢失问题）
+DB_FILE = "visit_stats.db"
 
-def update_daily_visits_cloud():
-    today_str = datetime.date.today().isoformat()
-    if "has_counted" in st.session_state:
-        c.execute("SELECT count FROM visits WHERE date=?", (today_str,))
-        res = c.fetchone()
-        return res[0] if res else 0
-    
-    # 更新数据库计数
-    c.execute("SELECT count FROM visits WHERE date=?", (today_str,))
-    res = c.fetchone()
-    count = res[0] + 1 if res else 1
-    c.execute("REPLACE INTO visits (date, count) VALUES (?, ?)", (today_str, count))
+def init_db():
+    """初始化SQLite数据库（兼容云端/本地）"""
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    c = conn.cursor()
+    # 创建访问统计表：日期、日计数、总计数、UV计数
+    c.execute('''CREATE TABLE IF NOT EXISTS visit_stats 
+                 (date TEXT PRIMARY KEY, 
+                  daily_count INTEGER DEFAULT 0,
+                  total_count INTEGER DEFAULT 0,
+                  unique_visitors INTEGER DEFAULT 0)''')
+    # 创建访客表（用于UV去重）
+    c.execute('''CREATE TABLE IF NOT EXISTS visitors 
+                 (visitor_id TEXT PRIMARY KEY, 
+                  first_visit_date TEXT)''')
     conn.commit()
-    
-    st.session_state["has_counted"] = True
-    return count
+    conn.close()
 
-daily_visits = update_daily_visits_cloud()
+def get_visitor_id():
+    """生成唯一访客ID（基于会话+时间，避免重复）"""
+    if "visitor_id" not in st.session_state:
+        # 组合会话ID+时间戳，确保唯一性
+        session_id = str(hash(st.runtime.get_instance()._session_id))
+        timestamp = str(datetime.datetime.now().timestamp())
+        st.session_state["visitor_id"] = f"{session_id}_{timestamp}"
+    return st.session_state["visitor_id"]
 
-# 使用扩展计数
-st.markdown(f"今日访问：{daily_visits} | 总访问：{daily_visits} | 独立访客：{daily_visits}", unsafe_allow_html=True)
+def update_daily_visits():
+    """
+    安全更新访问量统计（原生SQLite实现，无第三方依赖）：
+    1. 每日访问量（PV）：当日所有访问次数
+    2. 总访问量：累计所有访问次数
+    3. 独立访客（UV）：去重后的访客数
+    """
+    try:
+        # 初始化数据库
+        init_db()
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        c = conn.cursor()
+        
+        # 今日日期（UTC格式，避免时区问题）
+        today_str = datetime.datetime.utcnow().date().isoformat()
+        visitor_id = get_visitor_id()
+        
+        # 防重复计数：单会话仅统计一次PV/UV
+        if "has_counted" in st.session_state:
+            # 读取当前计数返回
+            c.execute("SELECT daily_count, total_count, unique_visitors FROM visit_stats WHERE date=?", (today_str,))
+            res = c.fetchone()
+            if res:
+                daily, total, uv = res
+            else:
+                daily, total, uv = 0, 0, 0
+            conn.close()
+            return daily
+        
+        # 1. 检查今日数据是否存在
+        c.execute("SELECT daily_count, total_count, unique_visitors FROM visit_stats WHERE date=?", (today_str,))
+        res = c.fetchone()
+        
+        if res:
+            daily_count, total_count, unique_visitors = res
+            # 日计数+1
+            daily_count += 1
+            # 总计数+1
+            total_count += 1
+        else:
+            # 当日首次访问，初始化数据
+            daily_count = 1
+            # 读取总计数（累加）
+            c.execute("SELECT SUM(total_count) FROM visit_stats")
+            total_sum = c.fetchone()[0] or 0
+            total_count = total_sum + 1
+            # 初始化UV
+            unique_visitors = 0
+        
+        # 2. 统计UV：新访客则+1
+        c.execute("SELECT 1 FROM visitors WHERE visitor_id=?", (visitor_id,))
+        if not c.fetchone():
+            # 新访客，插入访客表
+            c.execute("INSERT INTO visitors (visitor_id, first_visit_date) VALUES (?, ?)", 
+                      (visitor_id, today_str))
+            unique_visitors += 1
+        
+        # 3. 保存今日数据（新增/更新）
+        c.execute("""
+            REPLACE INTO visit_stats (date, daily_count, total_count, unique_visitors) 
+            VALUES (?, ?, ?, ?)
+        """, (today_str, daily_count, total_count, unique_visitors))
+        
+        conn.commit()
+        conn.close()
+        
+        # 标记会话已计数
+        st.session_state["has_counted"] = True
+        
+        return daily_count
+        
+    except Exception as e:
+        # 异常时使用内存计数兜底（避免返回0）
+        if "fallback_daily_count" not in st.session_state:
+            st.session_state["fallback_daily_count"] = 1
+        else:
+            st.session_state["fallback_daily_count"] += 1
+        return st.session_state["fallback_daily_count"]
 
+# -------------------------- 计数使用示例 --------------------------
+# 更新并获取今日访问量
+daily_visits = update_daily_visits()
+visit_text = f"今日访问: {daily_visits}"
+
+# 在页面展示计数结果（原位置保留）
+st.markdown(f"""
+<div style='text-align:center; color:#94a3b8; font-size:0.75rem; margin-top:40px; line-height: 1.5;'>
+    基于对数正态分布模型估算<br>
+    <span style="opacity: 0.7">{visit_text}</span>
+</div>
+""", unsafe_allow_html=True)
 
 # 使用扩展计数
 #daily, total, uv = update_visit_stats()

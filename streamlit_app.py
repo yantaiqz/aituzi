@@ -555,6 +555,9 @@ st.markdown(f"""
     <div class="metric-box">
         <div class="metric-sub">今日 UV: {today_uv} 访客数</div>
     </div>
+    <div class="metric-box">
+        <div class="metric-sub">今日 PV: {today_pv} 浏览数</div>
+    </div>
     <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
         <div class="metric-sub">历史总 UV: {total_uv} 总独立访客</div>
     </div>

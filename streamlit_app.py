@@ -378,64 +378,42 @@ if process_trigger:
         AI 模型可能会产生幻觉（Hallucination），对于剽窃来源的引用请务必进行人工核实。
         </div>
         """, unsafe_allow_html=True)
+# 方案1：改用 Streamlit State + 云端数据库（推荐）
+# 需先安装：pip install streamlit-extras
+from streamlit_extras import session_state
+import sqlite3
 
+# 初始化SQLite数据库（云端持久化）
+conn = sqlite3.connect("visit_stats.db", check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS visits 
+             (date TEXT PRIMARY KEY, count INTEGER)''')
+conn.commit()
 
-def update_visit_stats():
-    """扩展：统计总访问量+每日访问量+UV"""
-    try:
-        today_str = datetime.date.today().isoformat()
-        stats_file = "aituzi_visit_stats.json"
-        
-        # 防重复计数
-        if "has_counted" in st.session_state:
-            with open(stats_file, "r") as f:
-                data = json.load(f)
-            return data["daily_count"], data["total_visits"], data["unique_visitors"]
-        
-        # 初始化数据结构
-        default_data = {
-            "daily_count": 0,
-            "total_visits": 0,
-            "unique_visitors": 0,
-            "last_date": today_str,
-            "visitor_ids": []  # 存储访客标识（如IP/会话ID）
-        }
-        
-        # 读取现有数据
-        if os.path.exists(stats_file):
-            with open(stats_file, "r") as f:
-                data = json.load(f)
-            # 每日重置日计数
-            if data["last_date"] != today_str:
-                data["daily_count"] = 0
-                data["last_date"] = today_str
-        else:
-            data = default_data
-        
-        # 获取访客标识（简单示例）
-        visitor_id = st.session_state.get("visitor_id", str(datetime.datetime.now().timestamp()))
-        if "visitor_id" not in st.session_state:
-            st.session_state["visitor_id"] = visitor_id
-        
-        # 更新计数
-        data["daily_count"] += 1
-        data["total_visits"] += 1
-        # UV统计：新访客则+1
-        if visitor_id not in data["visitor_ids"]:
-            data["unique_visitors"] += 1
-            data["visitor_ids"].append(visitor_id)
-        
-        # 保存数据
-        with open(stats_file, "w") as f:
-            json.dump(data, f)
-        
-        st.session_state["has_counted"] = True
-        return data["daily_count"], data["total_visits"], data["unique_visitors"]
+def update_daily_visits_cloud():
+    today_str = datetime.date.today().isoformat()
+    if "has_counted" in st.session_state:
+        c.execute("SELECT count FROM visits WHERE date=?", (today_str,))
+        res = c.fetchone()
+        return res[0] if res else 0
     
-    except Exception as e:
-        return 0, 0, 0
+    # 更新数据库计数
+    c.execute("SELECT count FROM visits WHERE date=?", (today_str,))
+    res = c.fetchone()
+    count = res[0] + 1 if res else 1
+    c.execute("REPLACE INTO visits (date, count) VALUES (?, ?)", (today_str, count))
+    conn.commit()
+    
+    st.session_state["has_counted"] = True
+    return count
+
+daily_visits = update_daily_visits_cloud()
 
 # 使用扩展计数
-daily, total, uv = update_visit_stats()
-st.markdown(f"今日访问：{daily} | 总访问：{total} | 独立访客：{uv}", unsafe_allow_html=True)
+st.markdown(f"今日访问：{daily_visits} | 总访问：{daily_visits} | 独立访客：{daily_visits}", unsafe_allow_html=True)
+
+
+# 使用扩展计数
+#daily, total, uv = update_visit_stats()
+#st.markdown(f"今日访问：{daily} | 总访问：{total} | 独立访客：{uv}", unsafe_allow_html=True)
 

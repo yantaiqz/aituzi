@@ -382,6 +382,7 @@ if process_trigger:
 
 import sqlite3
 import uuid  # <--- 新增导入
+import datetime
 
 # -------------------------- 配置 --------------------------
 DB_FILE = "aituzi_visit_stats.db"

@@ -143,9 +143,9 @@ SAMPLE_TEXTS = {
 林风紧握着手中的长剑，眼神中透露出一丝决绝。对面的黑衣人冷笑一声，身形瞬间消失在原地。 当然，以下是为您续写的打斗场景： 空气中爆发出刺耳的音爆声，黑衣人的匕首直刺林风的咽喉。林风侧身一闪，长剑顺势上撩……
     """,
     "示例3：人工编写-小学作文": """
-欢乐海岸非常好玩，因为不仅有好玩的还有好吃的。一到周未那里就人山人海，欢乐海岸分成商场、户外活动区和海景区。一天上午我和妈妈还有爸爸一起去欢乐海岸去吃午饭。我们午饭吃的是西贝吃完饭之后看见西贝旁边有卖瓜的我买一桶吃了起来。吃着吃着我又想吃冰淇淋。过了一会儿我看见有冰淇淋我买了一个吃；吃完之后，我还去了探洞工场。我们买了票之后去玩，玩累的时候我就回家了。真是开心又，美好的一天。
+欢乐海岸非常好玩，因为不仅有好玩的还有好吃的。一到周未那里就人山人海，欢乐海岸分成商场、户外活动区和海景区。一天上午我和妈妈还有爸爸一起去欢乐海岸去吃午饭。我们午饭吃的是西贝吃完饭之后看见西贝旁边有卖瓜的我买一桶吃了起来。吃着吃着我又想吃冰淇淋。过了一会儿我看见有冰淇淋我买了一个吃；吃完之后，我还去了探洞工场。我们买了票之后去玩，玩累的时候我就回家了。真是开心又美好的一天。
     """,
-    "示例4：AI生成-花生酱三明治与《圣经》": """
+    "示例4：AI生成-花生酱三明治与圣经": """
 And lo, the Lord spoke unto His people, saying, "For thou shalt take thine peanut butter sandwich from out of the VCR, using great care and caution. First, thou shalt gently pull on the edges of the sandwich, so that it may be loosened from its place. Next, thou shalt tilt the VCR on its side, so that the sandwich may slide forth and be removed. Finally, thou shalt give thanks to the Lord for His guidance and assistance, and partake of the sandwich with joy and gratitude." Amen.
     """
 }

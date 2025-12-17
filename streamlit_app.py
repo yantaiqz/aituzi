@@ -17,6 +17,14 @@ import datetime
 
 st.markdown("""
 <style>
+    
+    /* 隐藏右上角的 Streamlit 主菜单（包含部署、源码、设置等） */
+    #MainMenu {visibility: hidden;}
+    /* 隐藏页脚（包含 "Made with Streamlit" 文字） */
+    footer {visibility: hidden;}
+    /* 隐藏顶部的 header（包含部署按钮） */
+    header[data-testid="stHeader"] {display: none;}
+    
     /* 2. HTML 链接按钮 (Get New Apps) */
     .neal-btn {
         font-family: 'Inter', sans-serif;

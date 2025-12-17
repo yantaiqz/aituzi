@@ -11,30 +11,187 @@ import sqlite3
 import uuid
 import datetime
 
+# -------------------------------------------------------------
+# 页面配置（必须放在最前面）
+# -------------------------------------------------------------
+st.set_page_config(
+    page_title="AI兔子 内容与剽窃检测系统",
+    page_icon="🐰",
+    layout="wide",
+    initial_sidebar_state="collapsed"  # 强制折叠侧边栏
+)
 
-
-# -------------------------- 右上角功能区 --------------------------
-
+# -------------------------- 全局样式优化（紧凑化核心） --------------------------
 st.markdown("""
 <style>
-    
-    /* 隐藏右上角的 Streamlit 主菜单（包含部署、源码、设置等） */
+    /* 隐藏 Streamlit 默认元素 */
     #MainMenu {visibility: hidden;}
-    /* 隐藏页脚（包含 "Made with Streamlit" 文字） */
     footer {visibility: hidden;}
-    /* 隐藏顶部的 header（包含部署按钮） */
     header[data-testid="stHeader"] {display: none;}
     
-    /* 2. HTML 链接按钮 (Get New Apps) */
+    /* 全局紧凑化 */
+    .stApp {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+        max-width: 98% !important;
+    }
+    
+    /* 标题样式（更紧凑） */
+    .main-header {
+        font-size: 1.8rem !important;
+        color: #1E88E5;
+        text-align: center;
+        margin-bottom: 0.5rem !important;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .sub-header {
+        font-size: 1rem !important;
+        color: #555;
+        text-align: center;
+        margin-bottom: 1rem !important;
+        line-height: 1.3;
+    }
+    
+    /* 结果卡片（更紧凑） */
+    .result-card {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px !important;
+        margin-bottom: 10px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        line-height: 1.4;
+    }
+    
+    /* 进度条样式 */
+    .stProgress > div > div > div > div {
+        background-image: linear-gradient(to right, #4caf50, #ffeb3b, #f44336);
+    }
+    
+    /* 警告文本 */
+    .warning-text {
+        color: #e65100;
+        font-size: 0.85rem !important;
+        font-style: italic;
+        margin-top: 10px !important;
+        margin-bottom: 10px !important;
+    }
+    
+    /* 模型配置卡片 */
+    .model-config-card {
+        background-color: #e8f4f8;
+        border-radius: 8px;
+        padding: 12px !important;
+        margin-bottom: 15px !important;
+        border-left: 4px solid #1E88E5;
+    }
+    
+    /* 单选按钮横向排列 */
+    .stRadio > div {
+        flex-direction: row !important;
+        gap: 15px !important;
+        justify-content: center !important;
+        margin-bottom: 0.5rem !important;
+    }
+    .stRadio label {
+        font-size: 0.9rem !important;
+    }
+    
+    /* 快捷按钮容器（核心紧凑化） */
+    .shortcut-btn-container {
+        display: flex;
+        gap: 8px !important;
+        margin-bottom: 10px !important;
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding: 3px 0 !important;
+    }
+    .shortcut-btn-container > button {
+        flex: 1;
+        min-width: 140px !important;
+        padding: 6px 4px !important;
+        border-radius: 6px !important;
+        border: 1px solid #1E88E5;
+        background-color: #e8f4f8;
+        color: #1E88E5;
+        font-size: 0.8rem !important;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        height: 36px !important;
+    }
+    .shortcut-btn-container > button:hover {
+        background-color: #1E88E5;
+        color: white;
+        border-color: #1976D2;
+    }
+    
+    /* 统计模块（紧凑化） */
+    .metric-container {
+        display: flex;
+        justify-content: center;
+        gap: 15px !important;
+        margin-top: 15px !important;
+        margin-bottom: 5px !important;
+        padding: 8px !important;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+    }
+    .metric-box {
+        text-align: center;
+    }
+    .metric-sub {
+        font-size: 0.75rem !important;
+        color: #6c757d;
+        line-height: 1.2;
+    }
+    
+    /* 按钮样式统一 */
+    .stButton > button {
+        box-shadow: none !important;
+        padding: 6px 12px !important;
+        font-size: 0.9rem !important;
+        border-radius: 6px !important;
+        height: auto !important;
+    }
+    .stButton > button[type="primary"] {
+        padding: 8px 16px !important;
+    }
+    
+    /* 文本输入框紧凑化 */
+    .stTextArea textarea {
+        height: 160px !important;
+        font-size: 0.9rem !important;
+        padding: 8px !important;
+    }
+    
+    /* 标签页样式优化 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px !important;
+        margin-bottom: 0.5rem !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 6px 12px !important;
+        font-size: 0.9rem !important;
+    }
+    
+    /* 右上角按钮样式 */
     .neal-btn {
         font-family: 'Inter', sans-serif;
         background: #fff;
         border: 1px solid #e5e7eb;
         color: #111;
         font-weight: 600;
-        font-size: 14px;
-        padding: 8px 16px;
-        border-radius: 8px;
+        font-size: 0.85rem !important;
+        padding: 6px 12px !important;
+        border-radius: 6px;
         cursor: pointer;
         transition: all 0.2s;
         display: inline-flex;
@@ -43,23 +200,47 @@ st.markdown("""
         white-space: nowrap;
         text-decoration: none !important;
         width: 100%;
-        height: 38px; /* 强制与 st.button 高度对齐 */
+        height: 36px !important;
     }
     .neal-btn:hover {
         background: #f9fafb;
         border-color: #111;
         transform: translateY(-1px);
     }
-    .neal-btn-link { text-decoration: none; width: 100%; display: block; }
+    .neal-btn-link { 
+        text-decoration: none; 
+        width: 100%; 
+        display: block; 
+    }
+    
+    /* 上传组件紧凑化 */
+    .stFileUploader {
+        margin-bottom: 0.5rem !important;
+    }
+    .stFileUploader label {
+        font-size: 0.9rem !important;
+    }
+    
+    /* 图片预览紧凑化 */
+    .stImage {
+        margin-bottom: 0.5rem !important;
+    }
+    
+    /* 展开栏紧凑化 */
+    .stExpander {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    .stExpanderHeader {
+        padding: 6px 12px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-
-# 创建右上角布局（占满整行，右侧显示按钮/链接）
-col_empty, col_more = st.columns([0.7, 0.1 ])
+# -------------------------- 右上角功能区（紧凑化） --------------------------
+col_empty, col_more = st.columns([0.85, 0.15])  # 调整列宽比例，更紧凑
 
 with col_more:
-    # 修复：改用 HTML 链接按钮（替代 webbrowser 方式，兼容 Streamlit 云环境）
     st.markdown(
         f"""
         <a href="https://haowan.streamlit.app/" target="_blank" class="neal-btn-link">
@@ -69,150 +250,26 @@ with col_more:
         unsafe_allow_html=True
     )
 
-    
-
-
 # -------------------------------------------------------------
-# 1. 页面配置与 CSS 样式（核心调整：快捷按钮并排样式）
-# -------------------------------------------------------------
-st.set_page_config(
-    page_title="AI兔子 内容与剽窃检测系统",
-    page_icon="🐰",
-    layout="wide",
-    initial_sidebar_state="collapsed"  # 强制折叠侧边栏
-)
-
-# 自定义 CSS 美化界面（重点优化快捷按钮并排样式）
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1E88E5;
-        text-align: center;
-        margin-bottom: 20px;
-        font-weight: 700;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #555;
-        text-align: center;
-        margin-bottom: 40px;
-    }
-    .result-card {
-        background-color: #f8f9fa;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    .metric-label {
-        font-weight: bold;
-        color: #333;
-    }
-    .stProgress > div > div > div > div {
-        background-image: linear-gradient(to right, #4caf50, #ffeb3b, #f44336);
-    }
-    .warning-text {
-        color: #e65100;
-        font-size: 0.9rem;
-        font-style: italic;
-    }
-    .model-config-card {
-        background-color: #e8f4f8;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 30px;
-        border-left: 4px solid #1E88E5;
-    }
-    .stRadio > div {
-        flex-direction: row;
-        gap: 20px;
-        justify-content: center;
-    }
-    /* 核心修改：快捷按钮并排样式 */
-    .shortcut-btn-container {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 20px;
-        width: 100%;
-        flex-wrap: nowrap; /* 强制不换行 */
-        overflow-x: auto;  /* 屏幕窄时横向滚动 */
-        padding: 5px 0;
-    }
-    .shortcut-btn-container > button {
-        flex: 1; /* 平均分配宽度 */
-        min-width: 180px; /* 最小宽度，保证按钮不挤变形 */
-        padding: 10px 8px;
-        border-radius: 8px;
-        border: 1px solid #1E88E5;
-        background-color: #e8f4f8;
-        color: #1E88E5;
-        font-size: 0.85rem;
-        white-space: nowrap; /* 按钮文字不换行 */
-        text-overflow: ellipsis; /* 文字过长时省略 */
-        overflow: hidden;
-    }
-    .shortcut-btn-container > button:hover {
-        background-color: #1E88E5;
-        color: white;
-        border-color: #1976D2;
-    }
-    /* 统计模块样式 */
-    .metric-container {
-        display: flex;
-        justify-content: center;
-        gap: 20px;
-        margin-top: 20px;
-        padding: 10px;
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        border: 1px solid #e9ecef;
-    }
-    .metric-box {
-        text-align: center;
-    }
-    .metric-label {
-        color: #6c757d;
-        font-size: 0.85rem;
-        margin-bottom: 2px;
-    }
-    .metric-value {
-        color: #212529;
-        font-size: 1.2rem;
-        font-weight: bold;
-    }
-    .metric-sub {
-        font-size: 0.7rem;
-        color: #adb5bd;
-    }
-    /* 隐藏Streamlit默认按钮边框 */
-    .stButton > button {
-        box-shadow: none !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------------------------------------------
-# 2. 示例文本配置（4个差异化示例）
+# 1. 示例文本配置
 # -------------------------------------------------------------
 SAMPLE_TEXTS = {
-    "示例1：人工编写-成人文学": """
+    "示例1：人工-成人文学": """
 人生最宝贵的是生命，生命属于人只有一次。一个人的生命应当这样度过：当他回忆往事的时候，他不致因虚度年华而悔恨，也不致因碌碌无为而羞愧；在临死的时候，他能够说：“我的整个生命和全部精力，都已献给世界上最壮丽的事业 —— 为人类的解放而斗争。
     """,
     "示例2：AI生成-武侠": """
 林风紧握着手中的长剑，眼神中透露出一丝决绝。对面的黑衣人冷笑一声，身形瞬间消失在原地。 当然，以下是为您续写的打斗场景： 空气中爆发出刺耳的音爆声，黑衣人的匕首直刺林风的咽喉。林风侧身一闪，长剑顺势上撩……
     """,
-    "示例3：人工编写-小学作文": """
+    "示例3：人工-小学作文": """
 欢乐海岸非常好玩，因为不仅有好玩的还有好吃的。一到周未那里就人山人海，欢乐海岸分成商场、户外活动区和海景区。一天上午我和妈妈还有爸爸一起去欢乐海岸去吃午饭。我们午饭吃的是西贝吃完饭之后看见西贝旁边有卖瓜的我买一桶吃了起来。吃着吃着我又想吃冰淇淋。过了一会儿我看见有冰淇淋我买了一个吃；吃完之后，我还去了探洞工场。我们买了票之后去玩，玩累的时候我就回家了。真是开心又美好的一天。
     """,
-    "示例4：AI生成-花生酱三明治与圣经": """
+    "示例4：AI-花生酱与圣经": """
 And lo, the Lord spoke unto His people, saying, "For thou shalt take thine peanut butter sandwich from out of the VCR, using great care and caution. First, thou shalt gently pull on the edges of the sandwich, so that it may be loosened from its place. Next, thou shalt tilt the VCR on its side, so that the sandwich may slide forth and be removed. Finally, thou shalt give thanks to the Lord for His guidance and assistance, and partake of the sandwich with joy and gratitude." Amen.
     """
 }
 
 # -------------------------------------------------------------
-# 3. 核心分析逻辑与 Prompt
+# 2. 核心分析逻辑与 Prompt
 # -------------------------------------------------------------
 ANALYSIS_SYSTEM_PROMPT = """
 你是一位专业的法医语言学家和学术诚信专家。你的任务是分析用户提供的文本（或图片中的文字），完成以下两个核心任务：
@@ -244,7 +301,7 @@ ANALYSIS_SYSTEM_PROMPT = """
 """
 
 # -------------------------------------------------------------
-# 4. 工具函数：文档解析
+# 3. 工具函数：文档解析
 # -------------------------------------------------------------
 def extract_text_from_pdf(file):
     try:
@@ -269,7 +326,7 @@ def extract_text_from_docx(file):
         return None
 
 # -------------------------------------------------------------
-# 5. 模型调用函数
+# 4. 模型调用函数
 # -------------------------------------------------------------
 def analyze_with_zhipu(api_key, content, is_image=False, image_data=None):
     """使用智谱 AI 进行分析"""
@@ -352,7 +409,7 @@ def analyze_with_gemini(api_key, content, is_image=False, image_data=None):
         return {"error": f"Gemini API 调用失败: {str(e)}"}
 
 # -------------------------------------------------------------
-# 6. 访问统计逻辑
+# 5. 访问统计逻辑
 # -------------------------------------------------------------
 DB_FILE = "aituzi_visit_stats.db"
 
@@ -441,28 +498,27 @@ def track_and_get_stats():
     return today_uv, total_uv, today_pv
 
 # -------------------------------------------------------------
-# 7. UI 布局与主逻辑
+# 6. UI 布局与主逻辑（紧凑化）
 # -------------------------------------------------------------
-# 页面标题
+# 页面标题（更紧凑）
 st.markdown('<div class="main-header">🐰 AI兔子 内容与剽窃检测系统</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">上传文档、图片或输入文本，一键检测 AI 生成痕迹与内容剽窃风险</div>', unsafe_allow_html=True)
 
-# 模型选择
+# 模型选择（更紧凑）
 model_provider = st.radio(
     "选择分析模型",
     ("智谱 AI (默认)", "Google Gemini (进阶)"),
     captions=["免费访问，GLM-4模型", "多模态能力强，Gemini-2.5模型"],
-    key="model_selector"
+    key="model_selector",
+    label_visibility="collapsed"  # 隐藏标签，更紧凑
 )
 
-st.markdown('</div>', unsafe_allow_html=True)
-
-# 初始化会话状态（用于快捷按钮文本填充）
+# 初始化会话状态
 if "sample_text" not in st.session_state:
     st.session_state.sample_text = ""
 
 # 输入方式选项卡
-tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传 (PDF/Word)", "🖼️ 图片分析"])
+tab1, tab2, tab3 = st.tabs(["📝 文本输入", "📂 文档上传", "🖼️ 图片分析"])
 
 content_to_analyze = ""
 image_to_analyze = None
@@ -470,79 +526,86 @@ is_image_mode = False
 process_trigger = False
 
 with tab1:
-    # 核心修改：快捷按钮并排容器
+    # 快捷按钮并排容器
     st.markdown('<div class="shortcut-btn-container">', unsafe_allow_html=True)
-    # 循环创建4个按钮（并排）
-    btn_cols = st.columns(4)  # 分成4列，每列一个按钮
+    btn_cols = st.columns(4)
     for idx, (btn_label, sample_content) in enumerate(SAMPLE_TEXTS.items()):
         with btn_cols[idx]:
             if st.button(btn_label, key=f"btn_sample_{btn_label}", use_container_width=True):
                 st.session_state.sample_text = sample_content.strip()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # 文本输入框（关联会话状态）
+    # 文本输入框（更紧凑）
     text_input = st.text_area(
-        "在此粘贴或输入需要检测的文字：", 
+        "",  # 隐藏标签
         value=st.session_state.sample_text,
-        height=200
+        placeholder="在此粘贴或输入需要检测的文字...",
+        key="text_input"
     )
     
-    if st.button("开始分析文本", key="btn_text", type="primary"):
-        if text_input.strip():
-            content_to_analyze = text_input
-            process_trigger = True
-        else:
-            st.warning("请输入文字。")
+    col_btn1, col_empty1 = st.columns([0.2, 0.8])
+    with col_btn1:
+        if st.button("开始分析", key="btn_text", type="primary", use_container_width=True):
+            if text_input.strip():
+                content_to_analyze = text_input
+                process_trigger = True
+            else:
+                st.warning("请输入文字。")
 
 with tab2:
-    uploaded_file = st.file_uploader("上传文档", type=['pdf', 'docx'])
-    if st.button("开始分析文档", key="btn_doc", type="primary"):
-        if uploaded_file:
-            with st.spinner("正在解析文档..."):
-                if uploaded_file.name.endswith('.pdf'):
-                    content_to_analyze = extract_text_from_pdf(uploaded_file)
-                elif uploaded_file.name.endswith('.docx'):
-                    content_to_analyze = extract_text_from_docx(uploaded_file)
-                
-                if content_to_analyze and len(content_to_analyze) > 10:
-                    process_trigger = True
-                    st.success(f"文档解析成功！共 {len(content_to_analyze)} 字。")
-                else:
-                    st.error("文档解析失败或内容为空。")
-        else:
-            st.warning("请先上传文件。")
+    uploaded_file = st.file_uploader("上传PDF/Word文档", type=['pdf', 'docx'], label_visibility="collapsed")
+    
+    col_btn2, col_empty2 = st.columns([0.2, 0.8])
+    with col_btn2:
+        if st.button("开始分析", key="btn_doc", type="primary", use_container_width=True):
+            if uploaded_file:
+                with st.spinner("解析文档中..."):
+                    if uploaded_file.name.endswith('.pdf'):
+                        content_to_analyze = extract_text_from_pdf(uploaded_file)
+                    elif uploaded_file.name.endswith('.docx'):
+                        content_to_analyze = extract_text_from_docx(uploaded_file)
+                    
+                    if content_to_analyze and len(content_to_analyze) > 10:
+                        process_trigger = True
+                        st.success(f"解析成功！{len(content_to_analyze)} 字")
+                    else:
+                        st.error("解析失败或内容为空")
+            else:
+                st.warning("请先上传文件")
 
 with tab3:
-    uploaded_image = st.file_uploader("上传包含文字的图片", type=['png', 'jpg', 'jpeg'])
+    uploaded_image = st.file_uploader("上传包含文字的图片", type=['png', 'jpg', 'jpeg'], label_visibility="collapsed")
     if uploaded_image:
         image_to_analyze = Image.open(uploaded_image)
-        st.image(image_to_analyze, caption="预览图片", use_container_width=True)
-        if st.button("开始分析图片", key="btn_img", type="primary"):
-            is_image_mode = True
-            process_trigger = True
+        st.image(image_to_analyze, caption="预览", use_container_width=True)
+        
+        col_btn3, col_empty3 = st.columns([0.2, 0.8])
+        with col_btn3:
+            if st.button("开始分析", key="btn_img", type="primary", use_container_width=True):
+                is_image_mode = True
+                process_trigger = True
 
 # --- 执行分析 ---
 if process_trigger:
-    # 根据选择自动获取 Key
+    # 获取API Key
     current_api_key = None
     try:
         if "Gemini" in model_provider:
-            current_api_key = st.secrets["GEMINI_API_KEY"]
+            current_api_key = st.secrets.get("GEMINI_API_KEY")
         else:
-            current_api_key = st.secrets["ZHIPU_API_KEY"]
-    except KeyError as e:
-        st.error(f"❌ 缺少配置：未在 Secrets 中找到 {e}。请在 .streamlit/secrets.toml 中配置。")
+            current_api_key = st.secrets.get("ZHIPU_API_KEY")
+    except:
+        st.error("❌ 请配置API Key")
         st.stop()
-    except FileNotFoundError:
-        st.error("❌ 配置文件丢失：未找到 .streamlit/secrets.toml 文件。")
+    
+    if not current_api_key:
+        st.error("❌ API Key未配置")
         st.stop()
 
-    result_container = st.container()
-    
-    with st.spinner(f"正在调用 {'Gemini' if 'Gemini' in model_provider else '智谱AI'} 进行深度分析..."):
+    with st.spinner(f"分析中（{model_provider}）..."):
         start_time = time.time()
         
-        # 选择模型调用
+        # 调用模型
         if "Gemini" in model_provider:
             result = analyze_with_gemini(current_api_key, content_to_analyze, is_image_mode, image_to_analyze)
         else:
@@ -550,7 +613,7 @@ if process_trigger:
         
         end_time = time.time()
 
-    # --- 结果展示 ---
+    # 结果展示（紧凑化）
     if "error" in result:
         st.error(result["error"])
     else:
@@ -560,87 +623,77 @@ if process_trigger:
         ai_data = result.get("ai_detection", {})
         copy_data = result.get("plagiarism_detection", {})
         
-        # 1. AI 检测结果展示
-        st.markdown("### 🤖 维度一：AI 生成检测")
-        col1, col2 = st.columns([1, 2])
+        # AI检测结果
+        st.markdown("### 🤖 AI生成检测")
+        col1, col2 = st.columns([0.3, 0.7])
         
         with col1:
             score = ai_data.get("score", 0)
             label = ai_data.get("label", "未知")
-            
-            # 动态颜色
-            color = "green"
-            if score > 40: color = "orange"
-            if score > 80: color = "red"
+            color = "green" if score < 40 else "orange" if score < 80 else "red"
             
             st.markdown(f"""
-            <div style="text-align: center; padding: 20px; border: 2px solid {color}; border-radius: 10px;">
-                <h2 style="color: {color}; margin: 0;">{label}</h2>
-                <h1 style="font-size: 3rem; margin: 0;">{score}%</h1>
-                <p style="color: #666;">AI 疑似度</p>
+            <div style="text-align: center; padding: 10px; border: 2px solid {color}; border-radius: 8px;">
+                <h3 style="color: {color}; margin: 0; font-size: 1rem;">{label}</h3>
+                <h2 style="font-size: 2rem; margin: 5px 0;">{score}%</h2>
+                <p style="color: #666; font-size: 0.8rem; margin: 0;">AI疑似度</p>
             </div>
             """, unsafe_allow_html=True)
             
         with col2:
             st.markdown('<div class="result-card">', unsafe_allow_html=True)
-            st.markdown(f"**判定理由：**\n\n{ai_data.get('reason', '无详细理由')}")
+            st.markdown(f"**判定理由：** {ai_data.get('reason', '无')}")
             st.progress(score / 100)
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # 2. 剽窃检测结果展示
-        st.markdown("### 📝 维度二：剽窃/抄袭检测")
-        col3, col4 = st.columns([1, 2])
+        # 剽窃检测结果
+        st.markdown("### 📝 剽窃/抄袭检测")
+        col3, col4 = st.columns([0.3, 0.7])
         
         with col3:
             copy_score = copy_data.get("percentage", 0)
-            
-            # 动态颜色
-            copy_color = "green"
-            if copy_score > 20: copy_color = "orange"
-            if copy_score > 50: copy_color = "red"
+            copy_color = "green" if copy_score < 20 else "orange" if copy_score < 50 else "red"
             
             st.markdown(f"""
-            <div style="text-align: center; padding: 20px; border: 2px solid {copy_color}; border-radius: 10px;">
-                <h2 style="color: {copy_color}; margin: 0;">剽窃风险</h2>
-                <h1 style="font-size: 3rem; margin: 0;">{copy_score}%</h1>
-                <p style="color: #666;">重复率预估</p>
+            <div style="text-align: center; padding: 10px; border: 2px solid {copy_color}; border-radius: 8px;">
+                <h3 style="color: {copy_color}; margin: 0; font-size: 1rem;">剽窃风险</h3>
+                <h2 style="font-size: 2rem; margin: 5px 0;">{copy_score}%</h2>
+                <p style="color: #666; font-size: 0.8rem; margin: 0;">重复率预估</p>
             </div>
             """, unsafe_allow_html=True)
             
         with col4:
             st.markdown('<div class="result-card">', unsafe_allow_html=True)
-            st.markdown(f"**分析详情：**\n\n{copy_data.get('reason', '无详细理由')}")
-            st.markdown(f"**📚 可能来源：**\n\n{copy_data.get('sources', '未知')}")
+            st.markdown(f"**分析详情：** {copy_data.get('reason', '无')}")
+            st.markdown(f"**来源：** {copy_data.get('sources', '未知')}")
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # 3. 原始数据（调试用）
-        with st.expander("🔍 查看原始 JSON 数据"):
+        # 原始数据
+        with st.expander("🔍 原始数据", expanded=False):
             st.json(result)
 
+        # 免责声明
         st.markdown("""
         <div class="warning-text">
-        ⚠️ 免责声明：本工具检测结果基于大模型概率预测，仅供参考，不作为最终的学术或法律依据。
-        AI 模型可能会产生幻觉（Hallucination），对于剽窃来源的引用请务必进行人工核实。
+        ⚠️ 免责声明：检测结果仅供参考，不构成学术/法律依据，请人工核实。
         </div>
         """, unsafe_allow_html=True)
 
-# --- 访问统计展示 ---
+# --- 访问统计展示（紧凑化） ---
 try:
     today_uv, total_uv, today_pv = track_and_get_stats()
 except Exception as e:
-    st.error(f"统计模块出错: {e}")
     today_uv, total_uv, today_pv = 0, 0, 0
 
-# 展示数据
 st.markdown(f"""
 <div class="metric-container">
     <div class="metric-box">
-        <div class="metric-sub">今日 UV: {today_uv} 访客数 PV: {today_pv} 浏览数</div>
+        <div class="metric-sub">今日 UV: {today_uv} | PV: {today_pv}</div>
     </div>
-    <div class="metric-box" style="border-left: 1px solid #dee2e6; border-right: 1px solid #dee2e6; padding-left: 20px; padding-right: 20px;">
-        <div class="metric-sub">历史总 UV: {total_uv} 总独立访客</div>
+    <div class="metric-box">
+        <div class="metric-sub">历史总 UV: {total_uv}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)

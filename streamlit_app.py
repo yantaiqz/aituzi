@@ -525,35 +525,47 @@ image_to_analyze = None
 is_image_mode = False
 process_trigger = False
 
+
 with tab1:
     # 快捷按钮并排容器
     st.markdown('<div class="shortcut-btn-container">', unsafe_allow_html=True)
     btn_cols = st.columns(4)
-    
+
+
+  
     # 修复：处理示例按钮点击事件
     for idx, (btn_label, sample_content) in enumerate(SAMPLE_TEXTS.items()):
         with btn_cols[idx]:
-            if st.button(btn_label, key=f"btn_{idx}", use_container_width=True):
-                # 更新会话状态
-                st.session_state.sample_text = sample_content.strip()
-                # 设置点击标记
-                st.session_state[f"btn_clicked_{btn_label}"] = True
-                # 强制刷新页面以更新文本框
-                st.rerun()
+            # 使用回调函数模式，这是 Streamlit 更新输入框最稳定的方法
+            def update_text_area(content):
+                # 直接更新 text_area 绑定的 key
+                st.session_state.text_input = content.strip()
+                st.session_state.sample_text = content.strip()
+
+            st.button(
+                btn_label, 
+                key=f"btn_{idx}", 
+                use_container_width=True,
+                on_click=update_text_area, # 绑定回调函数
+                args=(sample_content,)     # 传递参数
+            )
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # 文本输入框（修复：确保值正确绑定）
+    # 文本输入框
+    # 注意：当使用 key 时，value 参数主要用于初次渲染，
+    # 后续更新需要通过修改 st.session_state.text_input 实现 (上面的回调函数已做)
     text_input = st.text_area(
         "",  # 隐藏标签
-        value=st.session_state.sample_text,
+        value=st.session_state.sample_text, 
         placeholder="在此粘贴或输入需要检测的文字...",
-        key="text_input",
+        key="text_input", # 这个 key 非常关键
         height=160
     )
     
-    # 同步文本框内容到会话状态（关键修复）
+    # 同步文本框内容到会话状态
     st.session_state.sample_text = text_input
+
     
     col_btn1, col_empty1 = st.columns([0.2, 0.8])
     with col_btn1:
